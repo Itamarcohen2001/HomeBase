@@ -29,18 +29,27 @@ npx expo start
 ## הגדרת Supabase
 
 1. פותחים פרויקט חדש ב-[supabase.com](https://supabase.com).
-2. **SQL Editor** → מריצים לפי הסדר את הקבצים שבתיקייה `supabase/migrations/`:
+2. **SQL Editor → New query** → מדביקים את **כל** התוכן של `supabase/setup.sql` ולוחצים **Run**.
+   (הקובץ מאחד את שלוש המיגרציות שב-`supabase/migrations/` ובטוח להרצה חוזרת.)
+   אפשר גם להריץ את הקבצים בנפרד לפי הסדר:
    - `0001_schema.sql` — טבלאות
    - `0002_rls.sql` — RLS, פוליסי ופונקציות עזר (security definer, למניעת רקורסיה)
    - `0003_functions.sql` — RPC: יצירת משק בית, seed קטגוריות, הזמנות, גלגול יעדים, הרצת קבועות
-3. **Project Settings → API** → מעתיקים את `Project URL` ואת `anon public key` לקובץ `.env`:
+3. **Project Settings → API** → מעתיקים את `Project URL` ואת המפתח הציבורי לקובץ `.env`:
 
    ```
    EXPO_PUBLIC_SUPABASE_URL=https://xxxx.supabase.co
-   EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJ...
+   EXPO_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_...
    ```
 
+   > עובד גם עם מפתח מהדור החדש (`sb_publishable_...`) וגם עם `anon key` ישן בפורמט `eyJ...`.
+
 4. מפעילים מחדש את השרת: `npx expo start -c`
+
+### אימות מייל
+
+כברירת מחדל Supabase דורש אישור כתובת מייל לפני התחברות ראשונה.
+לפיתוח נוח אפשר לכבות זאת ב-**Authentication → Sign In / Providers → Email → Confirm email**.
 
 ### התחברות עם Google
 
@@ -85,6 +94,7 @@ src/
   context/              auth + משק בית
   hooks/                טעינת נתוני חודש
 supabase/
+  setup.sql             כל ה-SQL בקובץ אחד להדבקה בדשבורד
   migrations/           SQL כולל RLS ו-seed
   functions/send-invite Edge Function לשליחת הזמנות
 ```

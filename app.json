@@ -37,7 +37,8 @@
           "backgroundColor": "#FFFFFF"
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-status-bar"
     ],
     "extra": {}
   }

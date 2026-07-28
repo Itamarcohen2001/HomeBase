@@ -121,9 +121,10 @@ drop policy if exists household_members_select on public.household_members;
 create policy household_members_select on public.household_members for select to authenticated
 using (user_id = auth.uid() or public.is_household_member(household_id));
 
+-- אין policy ל-INSERT בכוונה: הצטרפות למשק בית מתבצעת אך ורק דרך
+-- create_household() או accept_invite() שהן security definer, כדי שמשתמש
+-- לא יוכל לצרף את עצמו למשק בית זר.
 drop policy if exists household_members_insert on public.household_members;
-create policy household_members_insert on public.household_members for insert to authenticated
-with check (user_id = auth.uid());
 
 drop policy if exists household_members_delete on public.household_members;
 create policy household_members_delete on public.household_members for delete to authenticated

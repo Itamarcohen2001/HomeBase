@@ -103,6 +103,15 @@ create table if not exists public.transactions (
 );
 create index if not exists transactions_household_date_idx
   on public.transactions (household_id, occurred_on desc);
+
+-- עמודה מחושבת לחודש התנועה. משתמשים ב-::timestamp במפורש כי
+-- date_trunc(text, timestamptz) היא STABLE בלבד (תלויה ב-TimeZone) ולכן
+-- אסורה בביטוי אינדקס / generated column, בעוד date_trunc(text, timestamp) היא IMMUTABLE.
+alter table public.transactions
+  add column if not exists period_month date
+  generated always as ((date_trunc('month', occurred_on::timestamp))::date) stored;
+
+-- מונע רישום כפול של אותה הוצאה קבועה באותו חודש
 create unique index if not exists transactions_recurring_month_idx
-  on public.transactions (recurring_rule_id, date_trunc('month', occurred_on))
+  on public.transactions (recurring_rule_id, period_month)
   where recurring_rule_id is not null;

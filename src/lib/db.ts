@@ -10,6 +10,7 @@ import type {
   Kind,
   MonthSummary,
   PendingInvite,
+  Profile,
   RecurringRule,
   Transaction,
 } from './types';
@@ -40,13 +41,32 @@ export async function renameHousehold(householdId: string, name: string): Promis
 }
 
 export async function listMembers(householdId: string): Promise<HouseholdMember[]> {
-  return unwrap(
+  const rows = unwrap(
     await supabase
       .from('household_members')
-      .select('*, profiles(*)')
+      .select('*')
       .eq('household_id', householdId)
       .order('joined_at'),
   ) as unknown as HouseholdMember[];
+  return attachProfiles(rows);
+}
+
+/**
+ * transactions.user_id / household_members.user_id reference auth.users, which
+ * PostgREST cannot traverse into public.profiles, so `profiles(...)` embedding
+ * fails with "Could not find a relationship". Resolving the profiles in a
+ * second query keeps the "מי רשם" label working on any existing database.
+ */
+async function attachProfiles<T extends { user_id: string | null }>(rows: T[]): Promise<T[]> {
+  const ids = [...new Set(rows.map((r) => r.user_id).filter((v): v is string => Boolean(v)))];
+  if (!ids.length) return rows;
+
+  const profiles = unwrap(
+    await supabase.from('profiles').select('id,full_name,email,avatar_url').in('id', ids),
+  ) as unknown as Profile[];
+
+  const byId = new Map(profiles.map((p) => [p.id, p]));
+  return rows.map((r) => ({ ...r, profiles: r.user_id ? byId.get(r.user_id) ?? null : null }));
 }
 
 export async function leaveHousehold(householdId: string, userId: string): Promise<void> {
@@ -176,7 +196,7 @@ export async function deleteTransaction(id: string): Promise<void> {
   unwrap(await supabase.from('transactions').delete().eq('id', id).select('id'));
 }
 
-const TX_SELECT = '*, categories(id,name,icon,color), profiles(id,full_name,email)';
+const TX_SELECT = '*, categories(id,name,icon,color)';
 
 export async function listTransactions(
   householdId: string,
@@ -192,7 +212,8 @@ export async function listTransactions(
   if (opts.month) q = q.gte('occurred_on', opts.month).lte('occurred_on', monthEnd(opts.month));
   if (opts.limit) q = q.limit(opts.limit);
 
-  return unwrap(await q) as unknown as Transaction[];
+  const rows = unwrap(await q) as unknown as Transaction[];
+  return attachProfiles(rows);
 }
 
 // ── יעדים ───────────────────────────────────────────────────────────────────

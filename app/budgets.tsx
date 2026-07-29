@@ -1,27 +1,30 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
-import { useHousehold } from '../../src/context/HouseholdContext';
-import { useMonthData } from '../../src/hooks/useMonthData';
-import * as db from '../../src/lib/db';
-import { formatMoney, monthLabel, monthStart, shekelsToAgorot } from '../../src/lib/format';
+import { useRouter } from 'expo-router';
+import { goBack } from '../src/lib/nav';
+import { useHousehold } from '../src/context/HouseholdContext';
+import { useMonthData } from '../src/hooks/useMonthData';
+import * as db from '../src/lib/db';
+import { formatMoney, monthLabel, monthStart, shekelsToAgorot } from '../src/lib/format';
 import {
   AmountInput,
   Body,
   Button,
   Card,
-  H2,
   IconBubble,
   InlineMessage,
   Muted,
+  PageHeader,
   ProgressBar,
   Screen,
   SectionTitle,
-} from '../../src/ui';
-import { colors, rtlRow, spacing } from '../../src/theme';
-import { errorText } from '../../src/lib/authErrors';
+} from '../src/ui';
+import { colors, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 export default function Budgets() {
   const month = monthStart();
+  const router = useRouter();
   const { householdId, bumpVersion } = useHousehold();
   const { categories, budgets, summary, loading, reload } = useMonthData(month);
 
@@ -73,7 +76,9 @@ export default function Budgets() {
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={colors.primary} />}>
-      <H2>יעדים</H2>
+      {/* רענון ישיר על /budgets נוחת כאן בלי היסטוריה, ולכן "חזרה" חייבת
+          נפילה מסודרת אל מסך "עוד" במקום router.back() ריק. */}
+      <PageHeader title="יעדים" onBack={() => goBack(router, '/(tabs)/more')} />
       <Muted style={{ marginBottom: spacing.lg }}>{monthLabel(month)} · היעדים מתגלגלים אוטומטית לחודש הבא</Muted>
 
       {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Switch, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { goBack } from '../src/lib/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
@@ -100,7 +101,7 @@ export default function Recurring() {
     <Screen>
       <PageHeader
         title="הוצאות קבועות"
-        onBack={() => router.back()}
+        onBack={() => goBack(router, '/(tabs)/more')}
         action={
           <Pressable
             accessibilityRole="button"

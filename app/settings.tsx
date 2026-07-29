@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { goBack } from '../src/lib/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
@@ -72,7 +73,7 @@ export default function Settings() {
 
   return (
     <Screen>
-      <PageHeader title="הגדרות" onBack={() => router.back()} />
+      <PageHeader title="הגדרות" onBack={() => goBack(router, '/(tabs)/more')} />
 
       {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
 

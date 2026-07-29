@@ -54,6 +54,12 @@ export type Transaction = {
   note: string | null;
   recurring_rule_id: string | null;
   created_at: string;
+  /**
+   * הוצאה של כל משק הבית. בגרף הפיצול בין בני הבית היא מקבלת פרוסה נפרדת
+   * ("משותף") ואינה נזקפת ל-user_id — אבל user_id עצמו נשמר ומוצג כרגיל.
+   * אופציונלי כי מסד נתונים שטרם הריץ את מיגרציה 0005 לא מחזיר את העמודה.
+   */
+  is_shared?: boolean | null;
   categories?: Pick<Category, 'id' | 'name' | 'icon' | 'color'> | null;
   profiles?: Pick<Profile, 'id' | 'full_name' | 'email'> | null;
 };
@@ -92,6 +98,18 @@ export type CategoryProgress = {
   category: Category;
   spent: number;
   budget: number;
+};
+
+/** פרוסה בגרף הניתוח — משמשת גם לפיצול לפי קטגוריה וגם לפיצול לפי אדם */
+export type AnalysisSlice = {
+  /** מזהה יציב לפרוסה: מזהה קטגוריה, מזהה משתמש, 'shared' או 'unknown' */
+  key: string;
+  label: string;
+  amount: number;
+  /** 0–100, מעוגל. סכום כל האחוזים מנורמל ל-100 */
+  percent: number;
+  color: string;
+  icon?: string;
 };
 
 export type MonthSummary = {

@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { goBack } from '../src/lib/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
@@ -131,7 +132,7 @@ export default function Members() {
 
   return (
     <Screen>
-      <PageHeader title="בני הבית" onBack={() => router.back()} />
+      <PageHeader title="בני הבית" onBack={() => goBack(router, '/(tabs)/more')} />
 
       {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
 

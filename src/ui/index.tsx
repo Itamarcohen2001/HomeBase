@@ -15,6 +15,119 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, font, layout, radius, rtlRow, rtlText, shadow, spacing } from '../theme';
 
 export { DialogProvider, useDialog } from './dialog';
+export { Donut } from './Donut';
+export { MonthNav } from './MonthNav';
+
+// ── Checkbox ────────────────────────────────────────────────────────────────
+/**
+ * תיבת סימון עם תווית ותת-כותרת. כל השורה לחיצה (לא רק הריבוע) והגובה
+ * המינימלי הוא 44px — מינימום שטח הנגיעה שאפל דורשת.
+ */
+export function Checkbox({
+  value,
+  onValueChange,
+  label,
+  hint,
+  icon,
+  testID,
+  accessibilityLabel,
+  style,
+}: {
+  value: boolean;
+  onValueChange: (value: boolean) => void;
+  label: string;
+  hint?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+  testID?: string;
+  accessibilityLabel?: string;
+  style?: ViewStyle;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="checkbox"
+      accessibilityLabel={accessibilityLabel ?? label}
+      accessibilityState={{ checked: value }}
+      // react-native-web 0.21 לא ממפה accessibilityState.checked ל-aria-checked,
+      // וקורא מסך (וכל בדיקה אוטומטית) לא יידע אם התיבה מסומנת.
+      aria-checked={value}
+      testID={testID}
+      onPress={() => onValueChange(!value)}
+      style={({ pressed }) => [
+        {
+          ...rtlRow,
+          gap: spacing.md,
+          alignItems: 'center',
+          minHeight: 44,
+          paddingHorizontal: spacing.md,
+          paddingVertical: spacing.sm,
+          borderRadius: radius.md,
+          borderWidth: 1,
+          borderColor: value ? colors.primary : colors.border,
+          backgroundColor: value ? colors.primarySoft : colors.surface,
+        },
+        pressed && { opacity: 0.75 },
+        style as ViewStyle,
+      ]}
+    >
+      <View
+        style={{
+          width: 22,
+          height: 22,
+          borderRadius: 6,
+          borderWidth: 2,
+          borderColor: value ? colors.primary : colors.border,
+          backgroundColor: value ? colors.primary : 'transparent',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexGrow: 0,
+          flexShrink: 0,
+        }}
+      >
+        {value ? <Ionicons name="checkmark" size={15} color={colors.white} /> : null}
+      </View>
+      <View style={{ flexShrink: 1, minWidth: 0 }}>
+        <View style={{ ...rtlRow, gap: spacing.xs + 2 }}>
+          {icon ? <Ionicons name={icon} size={16} color={value ? colors.primaryDark : colors.textMuted} /> : null}
+          <Text style={[font.body, rtlText, { fontWeight: '700', color: value ? colors.primaryDark : colors.text }]}>
+            {label}
+          </Text>
+        </View>
+        {hint ? <Text style={[font.small, rtlText, { fontSize: 12, marginTop: 1 }]}>{hint}</Text> : null}
+      </View>
+    </Pressable>
+  );
+}
+
+// ── Badge (תג קטן) ──────────────────────────────────────────────────────────
+export function Badge({
+  children,
+  color = colors.textMuted,
+  icon,
+}: {
+  children: React.ReactNode;
+  color?: string;
+  icon?: keyof typeof Ionicons.glyphMap;
+}) {
+  return (
+    <View
+      style={{
+        ...rtlRow,
+        gap: 3,
+        alignSelf: 'flex-start',
+        flexGrow: 0,
+        flexShrink: 0,
+        paddingHorizontal: spacing.sm,
+        paddingVertical: 2,
+        borderRadius: radius.pill,
+        backgroundColor: `${color}1F`,
+      }}
+    >
+      {icon ? <Ionicons name={icon} size={11} color={color} /> : null}
+      <Text style={{ fontSize: 11, fontWeight: '700', color }}>{children}</Text>
+    </View>
+  );
+}
+
 
 // ── Screen ──────────────────────────────────────────────────────────────────
 export function Screen({

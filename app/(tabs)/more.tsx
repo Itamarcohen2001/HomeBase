@@ -17,6 +17,7 @@ type Row = {
 };
 
 const ROWS: Row[] = [
+  { icon: 'flag', color: '#2E9E6B', title: 'יעדים', subtitle: 'יעד חודשי לכל קטגוריה', href: '/budgets' },
   { icon: 'pricetags', color: '#4F7FE4', title: 'קטגוריות', subtitle: 'הוספה, עריכה ומחיקה', href: '/categories' },
   { icon: 'repeat', color: '#E4894F', title: 'הוצאות קבועות', subtitle: 'שכירות, ארנונה, מנויים', href: '/recurring' },
   { icon: 'people', color: '#9B6BDF', title: 'בני הבית', subtitle: 'חברים והזמנות למייל', href: '/members' },

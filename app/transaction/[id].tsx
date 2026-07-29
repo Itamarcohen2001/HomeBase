@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { goBack } from '../../src/lib/nav';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useHousehold } from '../../src/context/HouseholdContext';
@@ -10,9 +11,11 @@ import { formatDate, shekelsToAgorot, toDateString } from '../../src/lib/format'
 import type { Transaction } from '../../src/lib/types';
 import {
   AmountInput,
+  Badge,
   Body,
   Button,
   Card,
+  Checkbox,
   Field,
   InlineMessage,
   Loading,
@@ -35,10 +38,22 @@ export default function EditTransaction() {
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [note, setNote] = useState('');
+  const [isShared, setIsShared] = useState(false);
+  const [sharedAvailable, setSharedAvailable] = useState(false);
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    db.hasSharedColumn().then((ok) => {
+      if (alive) setSharedAvailable(ok);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     const found = transactions.find((t) => t.id === id) ?? null;
@@ -47,6 +62,7 @@ export default function EditTransaction() {
     setAmount(String(found.amount_agorot / 100));
     setCategoryId(found.category_id);
     setNote(found.note ?? '');
+    setIsShared(Boolean(found.is_shared));
     setDate(new Date(`${found.occurred_on}T00:00:00`));
   }, [transactions, id]);
 
@@ -70,9 +86,10 @@ export default function EditTransaction() {
         category_id: categoryId,
         note: note.trim() || null,
         occurred_on: toDateString(date),
+        ...(tx.kind === 'expense' ? { is_shared: isShared } : {}),
       });
       bumpVersion();
-      router.back();
+      goBack(router, '/(tabs)/history');
     } catch (e) {
       setError(errorText(e, 'לא הצלחנו לשמור'));
     } finally {
@@ -93,7 +110,7 @@ export default function EditTransaction() {
     try {
       await db.deleteTransaction(tx.id);
       bumpVersion();
-      router.back();
+      goBack(router, '/(tabs)/history');
     } catch (e) {
       setError(errorText(e, 'לא הצלחנו למחוק את התנועה'));
     }
@@ -103,7 +120,7 @@ export default function EditTransaction() {
   if (!tx) {
     return (
       <Screen>
-        <PageHeader title="תנועה" onBack={() => router.back()} />
+        <PageHeader title="תנועה" onBack={() => goBack(router, '/(tabs)/history')} />
         <Card>
           <Muted>התנועה לא נמצאה (ייתכן שהיא בחודש אחר).</Muted>
         </Card>
@@ -113,19 +130,37 @@ export default function EditTransaction() {
 
   return (
     <Screen>
-      <PageHeader title={tx.kind === 'income' ? 'עריכת הכנסה' : 'עריכת הוצאה'} onBack={() => router.back()} />
+      <PageHeader title={tx.kind === 'income' ? 'עריכת הכנסה' : 'עריכת הוצאה'} onBack={() => goBack(router, '/(tabs)/history')} />
 
       {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
 
       <Card>
-        <Muted>נרשם על ידי</Muted>
-        <Body style={{ fontWeight: '600' }}>{tx.profiles?.full_name ?? tx.profiles?.email ?? 'לא ידוע'}</Body>
+        <View style={{ ...rtlRow, gap: spacing.sm, justifyContent: 'space-between' }}>
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
+            <Muted>נרשם על ידי</Muted>
+            <Body style={{ fontWeight: '600' }}>{tx.profiles?.full_name ?? tx.profiles?.email ?? 'לא ידוע'}</Body>
+          </View>
+          {tx.is_shared ? <Badge icon="people" color={colors.primary}>משותף</Badge> : null}
+        </View>
       </Card>
 
       <Card>
         <Muted style={{ marginBottom: spacing.xs }}>סכום</Muted>
         <AmountInput value={amount} onChangeText={setAmount} size="lg" accessibilityLabel="סכום" />
       </Card>
+
+      {sharedAvailable && tx.kind === 'expense' ? (
+        <Checkbox
+          testID="hb-edit-shared"
+          value={isShared}
+          onValueChange={setIsShared}
+          icon="people"
+          label="הוצאה משותפת"
+          hint="לא תיזקף לאף אחד בפיצול בין בני הבית"
+          accessibilityLabel="הוצאה משותפת"
+          style={{ marginBottom: spacing.md }}
+        />
+      ) : null}
 
       <Muted style={{ marginBottom: spacing.sm }}>קטגוריה</Muted>
       <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg }}>

@@ -153,6 +153,34 @@ export async function deleteCategory(id: string): Promise<void> {
 
 // ── תנועות ──────────────────────────────────────────────────────────────────
 
+/**
+ * `is_shared` נוספה במיגרציה 0005. מסד נתונים שטרם הריץ אותה יחזיר שגיאת
+ * PostgREST 42703 ("column does not exist") על כל כתיבה שכוללת את העמודה,
+ * ואז כל הוספת תנועה תיכשל. במקום להפיל את המשתמש אנחנו מזהים את המצב פעם
+ * אחת, זוכרים אותו, ומדרגים למטה: התכונה פשוט לא מוצגת עד שהמיגרציה תרוץ.
+ */
+let sharedColumnState: 'unknown' | 'present' | 'missing' = 'unknown';
+let sharedColumnProbe: Promise<boolean> | null = null;
+
+function isMissingSharedColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === '42703') return true;
+  return /is_shared/i.test(error.message ?? '') && /does not exist|column/i.test(error.message ?? '');
+}
+
+async function probeSharedColumn(): Promise<boolean> {
+  const { error } = await supabase.from('transactions').select('is_shared').limit(1);
+  sharedColumnState = isMissingSharedColumn(error) ? 'missing' : 'present';
+  return sharedColumnState === 'present';
+}
+
+/** האם העמודה קיימת במסד. נבדק פעם אחת ונשמר בזיכרון לכל אורך הריצה. */
+export function hasSharedColumn(): Promise<boolean> {
+  if (sharedColumnState !== 'unknown') return Promise.resolve(sharedColumnState === 'present');
+  if (!sharedColumnProbe) sharedColumnProbe = probeSharedColumn();
+  return sharedColumnProbe;
+}
+
 export async function addTransaction(input: {
   householdId: string;
   userId: string;
@@ -161,21 +189,21 @@ export async function addTransaction(input: {
   amountAgorot: number;
   occurredOn: string;
   note?: string | null;
+  isShared?: boolean;
 }): Promise<Transaction> {
+  const payload: Record<string, unknown> = {
+    household_id: input.householdId,
+    user_id: input.userId,
+    category_id: input.categoryId,
+    kind: input.kind,
+    amount_agorot: input.amountAgorot,
+    occurred_on: input.occurredOn,
+    note: input.note ?? null,
+  };
+  if (await hasSharedColumn()) payload.is_shared = Boolean(input.isShared);
+
   return unwrap(
-    await supabase
-      .from('transactions')
-      .insert({
-        household_id: input.householdId,
-        user_id: input.userId,
-        category_id: input.categoryId,
-        kind: input.kind,
-        amount_agorot: input.amountAgorot,
-        occurred_on: input.occurredOn,
-        note: input.note ?? null,
-      })
-      .select('*')
-      .single(),
+    await supabase.from('transactions').insert(payload).select('*').single(),
   ) as unknown as Transaction;
 }
 
@@ -187,9 +215,12 @@ export async function updateTransaction(
     occurred_on: string;
     note: string | null;
     kind: Kind;
+    is_shared: boolean;
   }>,
 ): Promise<void> {
-  unwrap(await supabase.from('transactions').update(patch).eq('id', id).select('id'));
+  const payload = { ...patch };
+  if ('is_shared' in payload && !(await hasSharedColumn())) delete payload.is_shared;
+  unwrap(await supabase.from('transactions').update(payload).eq('id', id).select('id'));
 }
 
 export async function deleteTransaction(id: string): Promise<void> {

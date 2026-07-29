@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { goBack } from '../src/lib/nav';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuth } from '../src/context/AuthContext';
@@ -10,7 +11,7 @@ import { useMonthData } from '../src/hooks/useMonthData';
 import * as db from '../src/lib/db';
 import { formatDate, shekelsToAgorot, toDateString } from '../src/lib/format';
 import type { Kind } from '../src/lib/types';
-import { AmountInput, Body, Button, Card, Field, H2, IconBubble, InlineMessage, Muted } from '../src/ui';
+import { AmountInput, Body, Button, Card, Checkbox, Field, H2, IconBubble, InlineMessage, Muted } from '../src/ui';
 import { colors, layout, radius, rtlRow, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
 
@@ -25,6 +26,8 @@ export default function AddTransaction() {
   const [amount, setAmount] = useState('');
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [showMore, setShowMore] = useState(false);
+  const [isShared, setIsShared] = useState(false);
+  const [sharedAvailable, setSharedAvailable] = useState(false);
   const [note, setNote] = useState('');
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
@@ -37,6 +40,18 @@ export default function AddTransaction() {
   const visible = useMemo(() => categories.filter((c) => c.kind === kind), [categories, kind]);
   const amountAgorot = shekelsToAgorot(amount);
   const canSave = amountAgorot > 0 && Boolean(categoryId);
+
+  // הסימון "הוצאה משותפת" תלוי בעמודה שנוספה במיגרציה 0005. אם היא עדיין
+  // לא קיימת במסד — לא מציגים תיבה שלא תישמר.
+  useEffect(() => {
+    let alive = true;
+    db.hasSharedColumn().then((ok) => {
+      if (alive) setSharedAvailable(ok);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   async function onSave() {
     if (!householdId || !user || !canSave) return;
@@ -51,9 +66,10 @@ export default function AddTransaction() {
         amountAgorot,
         occurredOn: toDateString(date),
         note: note.trim() || null,
+        isShared: kind === 'expense' && isShared,
       });
       bumpVersion();
-      router.back();
+      goBack(router, '/(tabs)');
     } catch (e) {
       setError(errorText(e, 'לא הצלחנו לשמור את התנועה'));
     } finally {
@@ -73,7 +89,7 @@ export default function AddTransaction() {
         }}
       >
         <H2>{kind === 'expense' ? 'הוצאה חדשה' : 'הכנסה חדשה'}</H2>
-        <Pressable accessibilityRole="button" accessibilityLabel="סגירה" onPress={() => router.back()} hitSlop={10}>
+        <Pressable accessibilityRole="button" accessibilityLabel="סגירה" onPress={() => goBack(router, '/(tabs)')} hitSlop={10}>
           <Ionicons name="close" size={26} color={colors.textMuted} />
         </Pressable>
       </View>
@@ -148,7 +164,7 @@ export default function AddTransaction() {
             justifyContent: 'space-between',
             minHeight: 44,
             paddingHorizontal: spacing.md,
-            marginBottom: spacing.lg,
+            marginBottom: spacing.md,
             borderRadius: radius.md,
             borderWidth: 1,
             borderColor: colors.border,
@@ -197,6 +213,21 @@ export default function AddTransaction() {
               />
             ) : null}
           </Card>
+        ) : null}
+
+        {/* הוצאה משותפת — יושב מעל רשת הקטגוריות, ליד "הערה ותאריך", כדי
+            שלא ייפול מתחת לקו הקיפול ולא ייחסם על ידי פוטר "שמירה". */}
+        {sharedAvailable && kind === 'expense' ? (
+          <Checkbox
+            testID="hb-add-shared"
+            value={isShared}
+            onValueChange={setIsShared}
+            icon="people"
+            label="הוצאה משותפת"
+            hint="לא תיזקף לאף אחד בפיצול בין בני הבית"
+            accessibilityLabel="הוצאה משותפת"
+            style={{ marginBottom: spacing.lg }}
+          />
         ) : null}
 
         {/* קטגוריה */}

@@ -81,7 +81,7 @@ export default function Home() {
             </View>
           ) : (
             <Muted style={{ marginTop: spacing.sm }}>
-              כדי לראות כמה נשאר, הגדר יעד חודשי במסך "יעדים"
+              כדי לראות כמה נשאר, אפשר להגדיר יעד חודשי במסך ״עוד״ ← ״יעדים״
             </Muted>
           )}
         </Card>
@@ -131,11 +131,11 @@ export default function Home() {
             })}
           </Card>
         ) : (
-          <Card>
+          <Card onPress={() => router.push('/budgets')} accessibilityLabel="הגדרת יעדים">
             <EmptyState
               icon="flag-outline"
               title="עוד לא הוגדרו יעדים"
-              subtitle="קבע יעד לכל קטגוריה כדי לעקוב אחרי ההתקדמות"
+              subtitle="אפשר לקבוע יעד לכל קטגוריה במסך ״עוד״ ← ״יעדים״"
             />
           </Card>
         )}

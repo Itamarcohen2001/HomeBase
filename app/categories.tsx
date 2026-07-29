@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { goBack } from '../src/lib/nav';
 import { Ionicons } from '@expo/vector-icons';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
@@ -88,7 +89,7 @@ export default function Categories() {
 
   return (
     <Screen>
-      <PageHeader title="קטגוריות" onBack={() => router.back()} />
+      <PageHeader title="קטגוריות" onBack={() => goBack(router, '/(tabs)/more')} />
 
       {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
 

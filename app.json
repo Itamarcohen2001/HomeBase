@@ -1,4 +1,4 @@
-﻿{
+{
   "expo": {
     "name": "HomeBase",
     "slug": "homebase",
@@ -39,6 +39,12 @@
       ],
       "expo-font"
     ],
-    "extra": {}
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "ef6d0454-ebeb-445e-ac8d-a4832e35feb4"
+      }
+    },
+    "owner": "itamarco2001"
   }
 }

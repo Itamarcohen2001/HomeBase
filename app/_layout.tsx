@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { I18nManager, View } from 'react-native';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
@@ -63,6 +64,9 @@ function Gate() {
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
+      <Head>
+        <title>HomeBase — תקציב משק הבית</title>
+      </Head>
       <StatusBar style="dark" />
       <AuthProvider>
         <HouseholdProvider>

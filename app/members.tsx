@@ -62,39 +62,49 @@ export default function Members() {
     setBusy(true);
     setMessage(null);
     try {
-      const invite = await db.inviteMember(householdId, email.trim());
+      await db.inviteMember(householdId, email.trim());
       setEmail('');
       await load();
-      // אין כרגע שליחת מייל אוטומטית (Edge Function לא פרוסה) — לכן לא מנסים
-      // לקרוא לה בכלל, כדי לא לירות שגיאת CORS לקונסול. הזמנה עדיין עובדת:
-      // היא ממתינה למשתמש כשיירשם עם אותה כתובת.
       setMessage({
         tone: 'success',
-        text: `ההזמנה ל-${invite.email} נשמרה. שלח לה/לו את הקישור מהכפתור למטה — ההזמנה תחכה במסך הפתיחה.`,
+        text: 'ההזמנה מוכנה. שלח/י את הקישור לבן/בת הזוג — ברגע שייכנסו עם אותה כתובת מייל הם יצטרפו אוטומטית.',
       });
     } catch (e) {
-      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לשלוח את ההזמנה') });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו ליצור את ההזמנה') });
     } finally {
       setBusy(false);
     }
   }
 
-  async function shareInvite(invite: Invite, name: string) {
+  async function shareInvite(invite: Invite) {
+    const where = household?.name ? ` למשק הבית "${household.name}"` : '';
     const text =
-      `הוזמנת להצטרף למשק הבית "${name}" באפליקציית HomeBase 🏠\n\n` +
-      `נכנסים לקישור, נרשמים עם הכתובת ${invite.email} — וההזמנה תחכה לך במסך הפתיחה:\n` +
-      appOrigin();
-    const result = await shareOrCopy(text, `הזמנה ל-${name}`);
+      `הוזמנת${where} ב-HomeBase — ניהול תקציב משק הבית.\n` +
+      `היכנס/י ל-${appOrigin()} והירשם/י עם הכתובת ${invite.email} כדי להצטרף.`;
+    const result = await shareOrCopy(text, 'הזמנה ל-HomeBase');
     if (result === 'copied') {
-      setMessage({ tone: 'success', text: 'קישור ההזמנה הועתק — אפשר להדביק בוואטסאפ' });
+      setMessage({ tone: 'success', text: 'הקישור הועתק — אפשר להדביק בוואטסאפ' });
     } else if (result === 'failed') {
-      setMessage({ tone: 'error', text: 'לא הצלחנו להעתיק. נסה שוב או העתק את הכתובת מהדפדפן.' });
+      setMessage({ tone: 'error', text: 'לא הצלחנו לשתף. נסה שוב, או העתק את הכתובת מהדפדפן.' });
     }
   }
 
   async function onRevoke(invite: Invite) {
-    await db.revokeInvite(invite.id);
-    await load();
+    const ok = await confirm({
+      title: 'ביטול ההזמנה',
+      message: `לבטל את ההזמנה ל-${invite.email}? אפשר יהיה ליצור אותה מחדש בכל רגע.`,
+      confirmText: 'ביטול ההזמנה',
+      cancelText: 'השארה',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await db.revokeInvite(invite.id);
+      await load();
+      setMessage({ tone: 'success', text: 'ההזמנה בוטלה' });
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לבטל את ההזמנה') });
+    }
   }
 
   async function onRemoveMember(m: HouseholdMember) {
@@ -128,7 +138,7 @@ export default function Members() {
       <Card>
         <H3 style={{ marginBottom: spacing.sm }}>הזמנת בן/בת זוג</H3>
         <Muted style={{ marginBottom: spacing.lg }}>
-          הזן כתובת מייל — ההזמנה תמתין למשתמש כשיתחבר עם אותה כתובת.
+          הזן כתובת מייל וקבל קישור לשיתוף. מי שנרשם עם אותה כתובת מצטרף אוטומטית.
         </Muted>
         <Field
           label="כתובת מייל"
@@ -138,7 +148,7 @@ export default function Members() {
           keyboardType="email-address"
           placeholder="partner@example.com"
         />
-        <Button title="שליחת הזמנה" onPress={onInvite} loading={busy} icon="mail" />
+        <Button title="יצירת הזמנה" onPress={onInvite} loading={busy} icon="person-add" />
       </Card>
 
       {invites.length > 0 ? (
@@ -172,11 +182,12 @@ export default function Members() {
                   </Pressable>
                 </View>
                 <Button
-                  title="העתקת קישור הזמנה"
+                  title="שיתוף ההזמנה"
+                  accessibilityLabel={`שיתוף הזמנה ל-${inv.email}`}
                   variant="secondary"
                   size="sm"
                   icon="share-outline"
-                  onPress={() => shareInvite(inv, household?.name ?? '')}
+                  onPress={() => shareInvite(inv)}
                   testID={`hb-share-invite-${inv.id}`}
                   style={{ marginTop: spacing.sm, marginBottom: 0 }}
                 />

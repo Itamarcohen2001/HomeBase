@@ -201,6 +201,7 @@ export function Button({
   style,
   size = 'md',
   testID,
+  accessibilityLabel,
 }: {
   title: string;
   onPress: () => void;
@@ -211,6 +212,8 @@ export function Button({
   style?: ViewStyle;
   size?: 'sm' | 'md' | 'lg';
   testID?: string;
+  /** ברירת מחדל: הכותרת. שימושי כשיש כמה כפתורים זהים ברשימה */
+  accessibilityLabel?: string;
 }) {
   const isDisabled = disabled || loading;
   const palette = {
@@ -223,7 +226,7 @@ export function Button({
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={title}
+      accessibilityLabel={accessibilityLabel ?? title}
       accessibilityState={{ disabled: Boolean(isDisabled), busy: Boolean(loading) }}
       testID={testID}
       onPress={onPress}

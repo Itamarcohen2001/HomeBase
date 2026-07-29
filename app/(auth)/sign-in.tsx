@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { Body, Button, Card, Field, H1, InlineMessage, Muted, Screen, TextLink } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
+import { errorText } from '../../src/lib/authErrors';
 
 export default function SignIn() {
   const { signInWithEmail, signInWithGoogle, resetPassword } = useAuth();
@@ -32,7 +33,7 @@ export default function SignIn() {
     try {
       await signInWithEmail(email, password);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(errorText(e, 'שגיאה לא ידועה'));
     } finally {
       setBusy(false);
     }
@@ -44,7 +45,7 @@ export default function SignIn() {
     try {
       await signInWithGoogle();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(errorText(e, 'שגיאה לא ידועה'));
     } finally {
       // חובה לאפס גם כשההתחברות מצליחה ומנווטת — אחרת הכפתור נתקע ב-loading
       setGoogleBusy(false);
@@ -61,7 +62,7 @@ export default function SignIn() {
       await resetPassword(email);
       setInfo('שלחנו לך מייל עם קישור לאיפוס הסיסמה');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(errorText(e, 'שגיאה לא ידועה'));
     }
   }
 

@@ -18,6 +18,7 @@ import {
   SectionTitle,
 } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
+import { errorText } from '../../src/lib/authErrors';
 
 export default function Budgets() {
   const month = monthStart();
@@ -64,7 +65,7 @@ export default function Budgets() {
       await reload();
       setMessage({ tone: 'success', text: 'היעדים נשמרו ויתגלגלו אוטומטית לחודש הבא' });
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לשמור' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לשמור') });
     } finally {
       setBusy(false);
     }

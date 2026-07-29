@@ -4,6 +4,7 @@ import * as db from '../lib/db';
 import { monthStart } from '../lib/format';
 import type { Household } from '../lib/types';
 import { useAuth } from './AuthContext';
+import { errorText } from '../lib/authErrors';
 
 const STORAGE_KEY = 'homebase.activeHouseholdId';
 
@@ -64,7 +65,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה בטעינת משק הבית');
+      setError(errorText(e, 'שגיאה בטעינת משק הבית'));
     } finally {
       setLoadedFor(user.id);
       setLoading(false);

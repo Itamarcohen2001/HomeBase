@@ -200,6 +200,7 @@ export function Button({
   disabled,
   style,
   size = 'md',
+  testID,
 }: {
   title: string;
   onPress: () => void;
@@ -208,7 +209,8 @@ export function Button({
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
-  size?: 'md' | 'lg';
+  size?: 'sm' | 'md' | 'lg';
+  testID?: string;
 }) {
   const isDisabled = disabled || loading;
   const palette = {
@@ -223,11 +225,14 @@ export function Button({
       accessibilityRole="button"
       accessibilityLabel={title}
       accessibilityState={{ disabled: Boolean(isDisabled), busy: Boolean(loading) }}
+      testID={testID}
       onPress={onPress}
       disabled={isDisabled}
       style={({ pressed }) => [
         s.button,
         size === 'lg' && { paddingVertical: 18, borderRadius: radius.lg },
+        // 44px הוא מינימום שטח הנגיעה שאפל דורשת — גם בגרסה ה"קטנה"
+        size === 'sm' && { paddingVertical: spacing.sm, minHeight: 44 },
         { backgroundColor: palette.bg, borderColor: palette.border },
         isDisabled && { opacity: 0.5 },
         pressed && { opacity: 0.75 },

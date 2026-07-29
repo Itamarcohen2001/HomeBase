@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, Share, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
-import { supabase } from '../src/lib/supabase';
+import { appOrigin, shareOrCopy } from '../src/lib/share';
 import type { HouseholdMember, Invite } from '../src/lib/types';
 import {
   Body,
@@ -22,6 +22,7 @@ import {
   useDialog,
 } from '../src/ui';
 import { colors, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 export default function Members() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function Members() {
       setMembers(m);
       setInvites(i.filter((x) => x.status === 'pending'));
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לטעון את בני הבית' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון את בני הבית') });
     } finally {
       setLoading(false);
     }
@@ -64,36 +65,31 @@ export default function Members() {
       const invite = await db.inviteMember(householdId, email.trim());
       setEmail('');
       await load();
-
-      // ניסיון לשליחת מייל דרך Edge Function (אם הוגדרה בפרויקט)
-      const { error } = await supabase.functions.invoke('send-invite', {
-        body: {
-          invite_id: invite.id,
-          email: invite.email,
-          household_name: household?.name ?? '',
-          inviter_name: user?.user_metadata?.full_name ?? user?.email ?? '',
-        },
+      // אין כרגע שליחת מייל אוטומטית (Edge Function לא פרוסה) — לכן לא מנסים
+      // לקרוא לה בכלל, כדי לא לירות שגיאת CORS לקונסול. הזמנה עדיין עובדת:
+      // היא ממתינה למשתמש כשיירשם עם אותה כתובת.
+      setMessage({
+        tone: 'success',
+        text: `ההזמנה ל-${invite.email} נשמרה. שלח לה/לו את הקישור מהכפתור למטה — ההזמנה תחכה במסך הפתיחה.`,
       });
-
-      if (error) {
-        setMessage({
-          tone: 'info',
-          text: 'ההזמנה נשמרה. שליחת המייל האוטומטית עדיין לא מוגדרת — אפשר לשתף את ההזמנה ידנית מהרשימה למטה.',
-        });
-      } else {
-        setMessage({ tone: 'success', text: `שלחנו הזמנה למייל ${invite.email}` });
-      }
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לשלוח את ההזמנה' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לשלוח את ההזמנה') });
     } finally {
       setBusy(false);
     }
   }
 
   async function shareInvite(invite: Invite, name: string) {
-    await Share.share({
-      message: `הוזמנת להצטרף למשק הבית "${name}" באפליקציית HomeBase.\nהורד את האפליקציה, הירשם עם הכתובת ${invite.email} וההזמנה תחכה לך במסך הפתיחה.`,
-    });
+    const text =
+      `הוזמנת להצטרף למשק הבית "${name}" באפליקציית HomeBase 🏠\n\n` +
+      `נכנסים לקישור, נרשמים עם הכתובת ${invite.email} — וההזמנה תחכה לך במסך הפתיחה:\n` +
+      appOrigin();
+    const result = await shareOrCopy(text, `הזמנה ל-${name}`);
+    if (result === 'copied') {
+      setMessage({ tone: 'success', text: 'קישור ההזמנה הועתק — אפשר להדביק בוואטסאפ' });
+    } else if (result === 'failed') {
+      setMessage({ tone: 'error', text: 'לא הצלחנו להעתיק. נסה שוב או העתק את הכתובת מהדפדפן.' });
+    }
   }
 
   async function onRevoke(invite: Invite) {
@@ -117,7 +113,7 @@ export default function Members() {
       if (isMe) router.replace('/setup');
       else await load();
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לעדכן' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לעדכן') });
     }
   }
 
@@ -153,38 +149,37 @@ export default function Members() {
               <View
                 key={inv.id}
                 style={{
-                  ...rtlRow,
-                  gap: spacing.sm,
-                  justifyContent: 'space-between',
                   paddingVertical: spacing.md,
                   borderTopWidth: i === 0 ? 0 : 1,
                   borderTopColor: colors.border,
                 }}
               >
-                <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
-                  <IconBubble icon="mail-unread" color={colors.warning} size={36} />
-                  <Body numberOfLines={1} style={{ flexShrink: 1 }}>
-                    {inv.email}
-                  </Body>
-                </View>
-                <View style={{ ...rtlRow, gap: spacing.lg }}>
+                <View style={{ ...rtlRow, gap: spacing.sm, justifyContent: 'space-between' }}>
+                  <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
+                    <IconBubble icon="mail-unread" color={colors.warning} size={36} />
+                    <Body numberOfLines={1} style={{ flexShrink: 1 }}>
+                      {inv.email}
+                    </Body>
+                  </View>
                   <Pressable
                     accessibilityRole="button"
-                    accessibilityLabel="שיתוף ההזמנה"
-                    hitSlop={8}
-                    onPress={() => shareInvite(inv, household?.name ?? '')}
-                  >
-                    <Ionicons name="share-outline" size={20} color={colors.textMuted} />
-                  </Pressable>
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="ביטול ההזמנה"
-                    hitSlop={8}
+                    accessibilityLabel={`ביטול ההזמנה ל-${inv.email}`}
+                    hitSlop={12}
                     onPress={() => onRevoke(inv)}
+                    style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
                   >
-                    <Ionicons name="close-circle" size={20} color={colors.danger} />
+                    <Ionicons name="close-circle" size={22} color={colors.danger} />
                   </Pressable>
                 </View>
+                <Button
+                  title="העתקת קישור הזמנה"
+                  variant="secondary"
+                  size="sm"
+                  icon="share-outline"
+                  onPress={() => shareInvite(inv, household?.name ?? '')}
+                  testID={`hb-share-invite-${inv.id}`}
+                  style={{ marginTop: spacing.sm, marginBottom: 0 }}
+                />
               </View>
             ))}
           </Card>

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
@@ -7,6 +7,7 @@ import * as db from '../src/lib/db';
 import type { PendingInvite } from '../src/lib/types';
 import { Body, Button, Card, Field, H1, H3, InlineMessage, Muted, Screen } from '../src/ui';
 import { colors, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 export default function Setup() {
   const { user, signOut } = useAuth();
@@ -34,7 +35,7 @@ export default function Setup() {
     try {
       await createHousehold(name.trim() || 'משק הבית שלי');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו ליצור משק בית');
+      setError(errorText(e, 'לא הצלחנו ליצור משק בית'));
     } finally {
       setBusy(false);
     }
@@ -47,7 +48,7 @@ export default function Setup() {
       await db.acceptInvite(invite.invite_id);
       await refreshHouseholds();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו להצטרף למשק הבית');
+      setError(errorText(e, 'לא הצלחנו להצטרף למשק הבית'));
     } finally {
       setBusy(false);
     }

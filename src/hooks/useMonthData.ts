@@ -4,6 +4,7 @@ import * as db from '../lib/db';
 import { monthStart } from '../lib/format';
 import type { Budget, Category, MonthSummary, Transaction } from '../lib/types';
 import { useHousehold } from '../context/HouseholdContext';
+import { errorText } from '../lib/authErrors';
 
 type State = {
   categories: Category[];
@@ -40,7 +41,7 @@ export function useMonthData(month: string = monthStart()) {
       setState((s) => ({
         ...s,
         loading: false,
-        error: e instanceof Error ? e.message : 'שגיאה בטעינת הנתונים',
+        error: errorText(e, 'שגיאה בטעינת הנתונים'),
       }));
     }
   }, [householdId, month]);

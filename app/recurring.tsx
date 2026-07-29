@@ -22,6 +22,7 @@ import {
   useDialog,
 } from '../src/ui';
 import { colors, radius, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 export default function Recurring() {
   const router = useRouter();
@@ -41,7 +42,7 @@ export default function Recurring() {
       setRules(r);
       setCategories(c);
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לטעון' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון') });
     } finally {
       setLoading(false);
     }
@@ -56,7 +57,7 @@ export default function Recurring() {
       await db.toggleRecurring(rule.id, value);
       setRules((rs) => rs.map((r) => (r.id === rule.id ? { ...r, is_active: value } : r)));
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לעדכן' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לעדכן') });
     }
   }
 
@@ -73,7 +74,7 @@ export default function Recurring() {
       await db.deleteRecurring(rule.id);
       await load();
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו למחוק' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו למחוק') });
     }
   }
 
@@ -89,7 +90,7 @@ export default function Recurring() {
         text: count > 0 ? `נרשמו ${count} תנועות קבועות` : 'הכול כבר מעודכן לחודש הזה',
       });
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו להריץ' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו להריץ') });
     }
   }
 
@@ -248,7 +249,7 @@ function RuleEditor({
       });
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו לשמור');
+      setError(errorText(e, 'לא הצלחנו לשמור'));
     } finally {
       setBusy(false);
     }

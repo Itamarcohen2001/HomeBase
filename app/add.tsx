@@ -1,5 +1,6 @@
-﻿import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -10,10 +11,12 @@ import * as db from '../src/lib/db';
 import { formatDate, shekelsToAgorot, toDateString } from '../src/lib/format';
 import type { Kind } from '../src/lib/types';
 import { AmountInput, Body, Button, Card, Field, H2, IconBubble, InlineMessage, Muted } from '../src/ui';
-import { colors, radius, rtlRow, spacing } from '../src/theme';
+import { colors, layout, radius, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 export default function AddTransaction() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { householdId, bumpVersion } = useHousehold();
   const { categories } = useMonthData();
@@ -27,6 +30,9 @@ export default function AddTransaction() {
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // גובה הפוטר הצף נמדד בפועל — כך הריווח התחתון של הגלילה תמיד מדויק,
+  // גם כשגובה הכפתור או ה-safe area משתנים.
+  const [footerHeight, setFooterHeight] = useState(layout.fabHeight + spacing.lg * 2);
 
   const visible = useMemo(() => categories.filter((c) => c.kind === kind), [categories, kind]);
   const amountAgorot = shekelsToAgorot(amount);
@@ -49,7 +55,7 @@ export default function AddTransaction() {
       bumpVersion();
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו לשמור את התנועה');
+      setError(errorText(e, 'לא הצלחנו לשמור את התנועה'));
     } finally {
       setBusy(false);
     }
@@ -73,7 +79,14 @@ export default function AddTransaction() {
       </View>
 
       <ScrollView
-        contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, paddingBottom: 140 }}
+        contentContainerStyle={{
+          padding: spacing.lg,
+          paddingTop: 0,
+          // הפוטר של "שמירה" צף מעל הגלילה. בלי ריווח בגובהו המדוד (ולא מספר
+          // קסם) הוא מכסה את סוף התוכן ו-elementFromPoint מחזיר אותו במקום
+          // הכפתור שמתחתיו.
+          paddingBottom: footerHeight + spacing.lg,
+        }}
         keyboardShouldPersistTaps="handled"
       >
         {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
@@ -121,55 +134,36 @@ export default function AddTransaction() {
           <AmountInput value={amount} onChangeText={setAmount} size="xl" autoFocus accessibilityLabel="סכום" />
         </Card>
 
-        {/* קטגוריה */}
-        <Muted style={{ marginBottom: spacing.sm }}>קטגוריה</Muted>
-        <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
-          {visible.map((c) => {
-            const active = categoryId === c.id;
-            return (
-              <Pressable
-                key={c.id}
-                accessibilityRole="button"
-                accessibilityState={{ selected: active }}
-                accessibilityLabel={c.name}
-                onPress={() => setCategoryId(c.id)}
-                style={{
-                  width: '31.5%',
-                  backgroundColor: active ? `${c.color}22` : colors.surface,
-                  borderWidth: 1.5,
-                  borderColor: active ? c.color : colors.border,
-                  borderRadius: radius.md,
-                  paddingVertical: spacing.md,
-                  paddingHorizontal: spacing.xs,
-                  alignItems: 'center',
-                }}
-              >
-                <IconBubble icon={c.icon} color={c.color} size={34} />
-                <Text
-                  numberOfLines={1}
-                  style={{ marginTop: spacing.xs, fontSize: 12, fontWeight: '600', color: colors.text }}
-                >
-                  {c.name}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* עוד */}
+        {/* פרטים נוספים — מעל רשת הקטגוריות כדי שלא יהיה תלוי בגלילה */}
         <Pressable
           accessibilityRole="button"
+          accessibilityLabel="פרטים נוספים"
           accessibilityState={{ expanded: showMore }}
+          testID="hb-add-more"
           onPress={() => setShowMore((v) => !v)}
-          style={{ ...rtlRow, gap: spacing.sm, marginTop: spacing.lg }}
-          hitSlop={8}
+          style={{
+            ...rtlRow,
+            gap: spacing.sm,
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            minHeight: 44,
+            paddingHorizontal: spacing.md,
+            marginBottom: spacing.lg,
+            borderRadius: radius.md,
+            borderWidth: 1,
+            borderColor: colors.border,
+            backgroundColor: colors.surface,
+          }}
         >
+          <View style={{ ...rtlRow, gap: spacing.sm, alignItems: 'center' }}>
+            <Ionicons name="create-outline" size={18} color={colors.primary} />
+            <Body style={{ color: colors.primary, fontWeight: '700' }}>הערה ותאריך</Body>
+          </View>
           <Ionicons name={showMore ? 'chevron-up' : 'chevron-down'} size={18} color={colors.primary} />
-          <Body style={{ color: colors.primary, fontWeight: '700' }}>עוד</Body>
         </Pressable>
 
         {showMore ? (
-          <Card style={{ marginTop: spacing.md }}>
+          <Card>
             <Field label="הערה" value={note} onChangeText={setNote} placeholder="למשל: קניות לשבת" />
             <Muted style={{ marginBottom: spacing.xs }}>תאריך</Muted>
             <Pressable
@@ -204,16 +198,52 @@ export default function AddTransaction() {
             ) : null}
           </Card>
         ) : null}
+
+        {/* קטגוריה */}
+        <Muted style={{ marginBottom: spacing.sm }}>קטגוריה</Muted>
+        <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
+          {visible.map((c) => {
+            const active = categoryId === c.id;
+            return (
+              <Pressable
+                key={c.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={c.name}
+                onPress={() => setCategoryId(c.id)}
+                style={{
+                  width: '31.5%',
+                  backgroundColor: active ? `${c.color}22` : colors.surface,
+                  borderWidth: 1.5,
+                  borderColor: active ? c.color : colors.border,
+                  borderRadius: radius.md,
+                  paddingVertical: spacing.md,
+                  paddingHorizontal: spacing.xs,
+                  alignItems: 'center',
+                }}
+              >
+                <IconBubble icon={c.icon} color={c.color} size={34} />
+                <Text
+                  numberOfLines={1}
+                  style={{ marginTop: spacing.xs, fontSize: 12, fontWeight: '600', color: colors.text }}
+                >
+                  {c.name}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
       </ScrollView>
 
       <View
+        onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
         style={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
           padding: spacing.lg,
-          paddingBottom: spacing.xl,
+          paddingBottom: spacing.lg + insets.bottom,
           backgroundColor: colors.surface,
           borderTopWidth: 1,
           borderTopColor: colors.border,

@@ -4,6 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { translateAuthError } from '../lib/authErrors';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -62,7 +63,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       email: email.trim().toLowerCase(),
       password,
     });
-    if (error) throw new Error(translateAuthError(error.message));
+    if (error) throw new Error(translateAuthError(error));
   }, []);
 
   const signUpWithEmail = useCallback(async (email: string, password: string, fullName: string) => {
@@ -71,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: { data: { full_name: fullName.trim() } },
     });
-    if (error) throw new Error(translateAuthError(error.message));
+    if (error) throw new Error(translateAuthError(error));
     return { needsConfirm: !data.session };
   }, []);
 
@@ -83,7 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         provider: 'google',
         options: { redirectTo: redirectUrl('auth-callback') },
       });
-      if (error) throw new Error(translateAuthError(error.message));
+      if (error) throw new Error(translateAuthError(error));
       // ברירת המחדל של supabase-js בוובי היא לנווט בעצמה. אם משום מה היא רק
       // החזירה כתובת — מנווטים ידנית כדי שהכפתור לא ייתקע ב-loading לנצח.
       if (data?.url && typeof window !== 'undefined' && window.location.href !== data.url) {
@@ -97,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       provider: 'google',
       options: { redirectTo, skipBrowserRedirect: true },
     });
-    if (error) throw new Error(translateAuthError(error.message));
+    if (error) throw new Error(translateAuthError(error));
     if (!data?.url) throw new Error('לא התקבלה כתובת התחברות מ-Google');
 
     const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
@@ -115,13 +116,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         access_token: accessToken,
         refresh_token: refreshToken,
       });
-      if (setErr) throw new Error(translateAuthError(setErr.message));
+      if (setErr) throw new Error(translateAuthError(setErr));
       return;
     }
 
     if (code) {
       const { error: exErr } = await supabase.auth.exchangeCodeForSession(code);
-      if (exErr) throw new Error(translateAuthError(exErr.message));
+      if (exErr) throw new Error(translateAuthError(exErr));
       return;
     }
 
@@ -132,7 +133,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
       redirectTo: redirectUrl('reset-password'),
     });
-    if (error) throw new Error(translateAuthError(error.message));
+    if (error) throw new Error(translateAuthError(error));
   }, []);
 
   const signOut = useCallback(async () => {
@@ -140,7 +141,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const { error } = await supabase.auth.signOut();
       // אם הטוקן כבר לא תקף בשרת עדיין רוצים לנקות את הסשן המקומי
       if (error && !/session|token|jwt/i.test(error.message)) {
-        throw new Error(translateAuthError(error.message));
+        throw new Error(translateAuthError(error));
       }
     } finally {
       setSession(null);
@@ -169,16 +170,4 @@ export function useAuth(): AuthValue {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error('useAuth must be used inside AuthProvider');
   return ctx;
-}
-
-function translateAuthError(message: string): string {
-  const m = message.toLowerCase();
-  if (m.includes('invalid login credentials')) return 'כתובת מייל או סיסמה שגויים';
-  if (m.includes('email not confirmed')) return 'המייל עדיין לא אומת — בדוק את תיבת הדואר';
-  if (m.includes('user already registered')) return 'כבר קיים משתמש עם כתובת המייל הזו';
-  if (m.includes('password should be at least')) return 'הסיסמה חייבת להכיל לפחות 6 תווים';
-  if (m.includes('unable to validate email')) return 'כתובת המייל אינה תקינה';
-  if (m.includes('provider is not enabled')) return 'התחברות עם Google עדיין לא הופעלה בפרויקט Supabase';
-  if (m.includes('network')) return 'אין חיבור לאינטרנט';
-  return message;
 }

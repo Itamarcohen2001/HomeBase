@@ -19,6 +19,7 @@ import {
   useDialog,
 } from '../src/ui';
 import { colors, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 export default function Settings() {
   const router = useRouter();
@@ -43,7 +44,7 @@ export default function Settings() {
       await refreshHouseholds();
       setMessage({ tone: 'success', text: 'שם משק הבית עודכן' });
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לשמור' });
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לשמור') });
     } finally {
       setBusy(false);
     }
@@ -63,7 +64,7 @@ export default function Settings() {
     try {
       await signOut();
     } catch (e) {
-      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'ההתנתקות נכשלה' });
+      setMessage({ tone: 'error', text: errorText(e, 'ההתנתקות נכשלה') });
     } finally {
       setSigningOut(false);
     }

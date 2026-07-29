@@ -20,6 +20,7 @@ import {
   useDialog,
 } from '../src/ui';
 import { colors, radius, rtlRow, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
 const ICONS = [
   'cart', 'restaurant', 'home', 'flash', 'car', 'medkit', 'happy', 'shirt',
@@ -50,7 +51,7 @@ export default function Categories() {
       setItems(await db.listCategories(householdId));
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו לטעון קטגוריות');
+      setError(errorText(e, 'לא הצלחנו לטעון קטגוריות'));
     } finally {
       setLoading(false);
     }
@@ -74,7 +75,7 @@ export default function Categories() {
       bumpVersion();
       await load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו למחוק את הקטגוריה');
+      setError(errorText(e, 'לא הצלחנו למחוק את הקטגוריה'));
     }
   }
 
@@ -219,7 +220,7 @@ function CategoryEditor({
       }
       onSaved();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו לשמור את הקטגוריה');
+      setError(errorText(e, 'לא הצלחנו לשמור את הקטגוריה'));
     } finally {
       setBusy(false);
     }

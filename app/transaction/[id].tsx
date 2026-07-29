@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,6 +22,7 @@ import {
   useDialog,
 } from '../../src/ui';
 import { colors, radius, rtlRow, spacing } from '../../src/theme';
+import { errorText } from '../../src/lib/authErrors';
 
 export default function EditTransaction() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -73,7 +74,7 @@ export default function EditTransaction() {
       bumpVersion();
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו לשמור');
+      setError(errorText(e, 'לא הצלחנו לשמור'));
     } finally {
       setBusy(false);
     }
@@ -94,7 +95,7 @@ export default function EditTransaction() {
       bumpVersion();
       router.back();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו למחוק את התנועה');
+      setError(errorText(e, 'לא הצלחנו למחוק את התנועה'));
     }
   }
 

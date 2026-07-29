@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { Body, Button, Card, Field, H1, InlineMessage, Muted, Screen, useDialog } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
+import { errorText } from '../../src/lib/authErrors';
 
 export default function SignUp() {
   const { signUpWithEmail, signInWithGoogle } = useAuth();
@@ -35,7 +36,7 @@ export default function SignUp() {
         router.replace('/(auth)/sign-in');
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(errorText(e, 'שגיאה לא ידועה'));
     } finally {
       setBusy(false);
     }
@@ -47,7 +48,7 @@ export default function SignUp() {
     try {
       await signInWithGoogle();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(errorText(e, 'שגיאה לא ידועה'));
     } finally {
       setGoogleBusy(false);
     }

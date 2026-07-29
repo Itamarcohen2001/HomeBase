@@ -6,6 +6,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useHousehold } from '../../src/context/HouseholdContext';
 import { Body, Card, H2, IconBubble, InlineMessage, Muted, Screen, useDialog } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
+import { errorText } from '../../src/lib/authErrors';
 
 type Row = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -44,7 +45,7 @@ export default function More() {
     try {
       await signOut();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'לא הצלחנו להתנתק');
+      setError(errorText(e, 'לא הצלחנו להתנתק'));
     } finally {
       setBusy(false);
     }

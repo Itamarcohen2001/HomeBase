@@ -1,11 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, RefreshControl, TextInput, View } from 'react-native';
+import { RefreshControl, View } from 'react-native';
 import { useHousehold } from '../../src/context/HouseholdContext';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import * as db from '../../src/lib/db';
 import { formatMoney, monthLabel, monthStart, shekelsToAgorot } from '../../src/lib/format';
-import { Body, Button, Card, H2, H3, IconBubble, Muted, ProgressBar, Screen } from '../../src/ui';
-import { colors, radius, rtlRow, rtlText, spacing } from '../../src/theme';
+import {
+  AmountInput,
+  Body,
+  Button,
+  Card,
+  H2,
+  IconBubble,
+  InlineMessage,
+  Muted,
+  ProgressBar,
+  Screen,
+  SectionTitle,
+} from '../../src/ui';
+import { colors, rtlRow, spacing } from '../../src/theme';
 
 export default function Budgets() {
   const month = monthStart();
@@ -15,6 +27,7 @@ export default function Budgets() {
   const [overall, setOverall] = useState('');
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
   const budgetByCategory = useMemo(() => {
     const map = new Map<string, number>();
@@ -39,6 +52,7 @@ export default function Budgets() {
   async function onSave() {
     if (!householdId) return;
     setBusy(true);
+    setMessage(null);
     try {
       await db.setBudget(householdId, month, null, shekelsToAgorot(overall || '0'));
       for (const c of expenseCategories) {
@@ -48,9 +62,9 @@ export default function Budgets() {
       }
       bumpVersion();
       await reload();
-      Alert.alert('נשמר', 'היעדים עודכנו ויתגלגלו אוטומטית לחודש הבא');
+      setMessage({ tone: 'success', text: 'היעדים נשמרו ויתגלגלו אוטומטית לחודש הבא' });
     } catch (e) {
-      Alert.alert('לא הצלחנו לשמור', e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לשמור' });
     } finally {
       setBusy(false);
     }
@@ -61,23 +75,15 @@ export default function Budgets() {
       <H2>יעדים</H2>
       <Muted style={{ marginBottom: spacing.lg }}>{monthLabel(month)} · היעדים מתגלגלים אוטומטית לחודש הבא</Muted>
 
+      {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
+
       <Card>
-        <H3 style={{ marginBottom: spacing.sm }}>יעד כללי לחודש</H3>
-        <View style={{ ...rtlRow }}>
-          <Body style={{ fontSize: 24, fontWeight: '800', color: colors.textFaint }}>₪</Body>
-          <TextInput
-            value={overall}
-            onChangeText={(t) => setOverall(t.replace(/[^\d.]/g, ''))}
-            keyboardType="decimal-pad"
-            placeholder="0"
-            placeholderTextColor={colors.textFaint}
-            style={{ ...rtlText, flex: 1, fontSize: 26, fontWeight: '800', color: colors.text, marginRight: spacing.sm }}
-          />
-        </View>
+        <Body style={{ fontWeight: '700', marginBottom: spacing.sm }}>יעד כללי לחודש</Body>
+        <AmountInput value={overall} onChangeText={setOverall} size="lg" />
         {summary && summary.overallBudget > 0 ? (
           <View style={{ marginTop: spacing.md }}>
             <ProgressBar ratio={summary.expense / summary.overallBudget} />
-            <Muted style={{ marginTop: 6 }}>
+            <Muted style={{ marginTop: spacing.xs }}>
               הוצאת {formatMoney(summary.expense)} מתוך {formatMoney(summary.overallBudget)}
             </Muted>
           </View>
@@ -87,7 +93,7 @@ export default function Budgets() {
         </Muted>
       </Card>
 
-      <H3 style={{ marginTop: spacing.md, marginBottom: spacing.sm }}>יעד לכל קטגוריה</H3>
+      <SectionTitle>יעד לכל קטגוריה</SectionTitle>
       <Card>
         {expenseCategories.map((c, i) => {
           const spent = summary?.byCategory.find((r) => r.category.id === c.id)?.spent ?? 0;
@@ -101,36 +107,26 @@ export default function Budgets() {
                 borderTopColor: colors.border,
               }}
             >
-              <View style={{ ...rtlRow, justifyContent: 'space-between' }}>
-                <View style={rtlRow}>
+              <View style={{ ...rtlRow, gap: spacing.md, justifyContent: 'space-between' }}>
+                {/* minWidth:0 + flexShrink מאפשרים לשם הקטגוריה להתקצר במקום לדחוף
+                    את שדה הסכום אל מחוץ למסך */}
+                <View style={{ ...rtlRow, gap: spacing.sm, flex: 1, minWidth: 0 }}>
                   <IconBubble icon={c.icon} color={c.color} size={34} />
-                  <Body style={{ marginRight: spacing.sm, fontWeight: '600' }}>{c.name}</Body>
+                  <Body numberOfLines={1} style={{ fontWeight: '600', flexShrink: 1 }}>
+                    {c.name}
+                  </Body>
                 </View>
-                <View
-                  style={{
-                    ...rtlRow,
-                    borderWidth: 1,
-                    borderColor: colors.border,
-                    borderRadius: radius.sm,
-                    paddingHorizontal: spacing.md,
-                    minWidth: 110,
-                  }}
-                >
-                  <Body style={{ color: colors.textFaint }}>₪</Body>
-                  <TextInput
-                    value={drafts[c.id] ?? ''}
-                    onChangeText={(t) => setDrafts((d) => ({ ...d, [c.id]: t.replace(/[^\d.]/g, '') }))}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor={colors.textFaint}
-                    style={{ ...rtlText, flex: 1, paddingVertical: 8, fontSize: 16, fontWeight: '700', color: colors.text }}
-                  />
-                </View>
+                <AmountInput
+                  align="compact"
+                  value={drafts[c.id] ?? ''}
+                  onChangeText={(t) => setDrafts((d) => ({ ...d, [c.id]: t }))}
+                  accessibilityLabel={`יעד לקטגוריה ${c.name}`}
+                />
               </View>
               {budget > 0 || spent > 0 ? (
                 <View style={{ marginTop: spacing.sm }}>
                   <ProgressBar ratio={budget > 0 ? spent / budget : 0} color={c.color} />
-                  <Muted style={{ marginTop: 4, fontSize: 12 }}>
+                  <Muted style={{ marginTop: spacing.xs, fontSize: 12 }}>
                     {budget > 0 ? `${formatMoney(spent)} מתוך ${formatMoney(budget)}` : `הוצאת ${formatMoney(spent)} ללא יעד`}
                   </Muted>
                 </View>

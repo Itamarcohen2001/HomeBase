@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, Text, TextInput, View } from 'react-native';
+﻿import React, { useEffect, useMemo, useState } from 'react';
+import { Platform, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -8,12 +8,25 @@ import { useMonthData } from '../../src/hooks/useMonthData';
 import * as db from '../../src/lib/db';
 import { formatDate, shekelsToAgorot, toDateString } from '../../src/lib/format';
 import type { Transaction } from '../../src/lib/types';
-import { Body, Button, Card, Field, Loading, Muted, PageHeader, Screen } from '../../src/ui';
-import { colors, radius, rtlRow, rtlText, spacing } from '../../src/theme';
+import {
+  AmountInput,
+  Body,
+  Button,
+  Card,
+  Field,
+  InlineMessage,
+  Loading,
+  Muted,
+  PageHeader,
+  Screen,
+  useDialog,
+} from '../../src/ui';
+import { colors, radius, rtlRow, spacing } from '../../src/theme';
 
 export default function EditTransaction() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
+  const { confirm } = useDialog();
   const { bumpVersion } = useHousehold();
   const { transactions, categories, loading } = useMonthData();
 
@@ -24,6 +37,7 @@ export default function EditTransaction() {
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const found = transactions.find((t) => t.id === id) ?? null;
@@ -44,10 +58,11 @@ export default function EditTransaction() {
     if (!tx) return;
     const amountAgorot = shekelsToAgorot(amount);
     if (amountAgorot <= 0) {
-      Alert.alert('סכום לא תקין', 'הסכום חייב להיות גדול מאפס');
+      setError('הסכום חייב להיות גדול מאפס');
       return;
     }
     setBusy(true);
+    setError(null);
     try {
       await db.updateTransaction(tx.id, {
         amount_agorot: amountAgorot,
@@ -58,26 +73,29 @@ export default function EditTransaction() {
       bumpVersion();
       router.back();
     } catch (e) {
-      Alert.alert('שגיאה', e instanceof Error ? e.message : 'לא הצלחנו לשמור');
+      setError(e instanceof Error ? e.message : 'לא הצלחנו לשמור');
     } finally {
       setBusy(false);
     }
   }
 
-  function onDelete() {
+  async function onDelete() {
     if (!tx) return;
-    Alert.alert('מחיקת תנועה', 'למחוק את התנועה?', [
-      { text: 'ביטול', style: 'cancel' },
-      {
-        text: 'מחיקה',
-        style: 'destructive',
-        onPress: async () => {
-          await db.deleteTransaction(tx.id);
-          bumpVersion();
-          router.back();
-        },
-      },
-    ]);
+    const ok = await confirm({
+      title: 'מחיקת תנועה',
+      message: 'למחוק את התנועה? הפעולה אינה הפיכה.',
+      confirmText: 'מחיקה',
+      cancelText: 'ביטול',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await db.deleteTransaction(tx.id);
+      bumpVersion();
+      router.back();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'לא הצלחנו למחוק את התנועה');
+    }
   }
 
   if (loading && !tx) return <Loading />;
@@ -96,6 +114,8 @@ export default function EditTransaction() {
     <Screen>
       <PageHeader title={tx.kind === 'income' ? 'עריכת הכנסה' : 'עריכת הוצאה'} onBack={() => router.back()} />
 
+      {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
+
       <Card>
         <Muted>נרשם על ידי</Muted>
         <Body style={{ fontWeight: '600' }}>{tx.profiles?.full_name ?? tx.profiles?.email ?? 'לא ידוע'}</Body>
@@ -103,15 +123,7 @@ export default function EditTransaction() {
 
       <Card>
         <Muted style={{ marginBottom: spacing.xs }}>סכום</Muted>
-        <View style={rtlRow}>
-          <Text style={{ fontSize: 30, fontWeight: '800', color: colors.textFaint }}>₪</Text>
-          <TextInput
-            value={amount}
-            onChangeText={(t) => setAmount(t.replace(/[^\d.]/g, ''))}
-            keyboardType="decimal-pad"
-            style={{ ...rtlText, flex: 1, fontSize: 32, fontWeight: '800', color: colors.text, marginRight: spacing.sm }}
-          />
-        </View>
+        <AmountInput value={amount} onChangeText={setAmount} size="lg" accessibilityLabel="סכום" />
       </Card>
 
       <Muted style={{ marginBottom: spacing.sm }}>קטגוריה</Muted>
@@ -119,11 +131,14 @@ export default function EditTransaction() {
         {visible.map((c) => (
           <Pressable
             key={c.id}
+            accessibilityRole="button"
+            accessibilityState={{ selected: categoryId === c.id }}
             onPress={() => setCategoryId(c.id)}
             style={{
               ...rtlRow,
+              gap: spacing.xs + 2,
               paddingHorizontal: spacing.md,
-              paddingVertical: 8,
+              paddingVertical: spacing.sm,
               borderRadius: radius.pill,
               borderWidth: 1.5,
               borderColor: categoryId === c.id ? c.color : colors.border,
@@ -131,18 +146,21 @@ export default function EditTransaction() {
             }}
           >
             <Ionicons name={c.icon as keyof typeof Ionicons.glyphMap} size={15} color={c.color} />
-            <Text style={{ marginRight: 6, fontSize: 13, fontWeight: '600', color: colors.text }}>{c.name}</Text>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{c.name}</Text>
           </Pressable>
         ))}
       </View>
 
       <Card>
         <Field label="הערה" value={note} onChangeText={setNote} placeholder="ללא הערה" />
-        <Muted style={{ marginBottom: 6 }}>תאריך</Muted>
+        <Muted style={{ marginBottom: spacing.xs }}>תאריך</Muted>
         <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="בחירת תאריך"
           onPress={() => setShowPicker(true)}
           style={{
             ...rtlRow,
+            gap: spacing.sm,
             justifyContent: 'space-between',
             borderWidth: 1,
             borderColor: colors.border,

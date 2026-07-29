@@ -16,6 +16,10 @@ export const colors = {
   white: '#FFFFFF',
 };
 
+/**
+ * סקאלת מרווחים אחת לכל האפליקציה. אין להמציא ערכים אקראיים —
+ * כל padding/margin/gap צריך לבוא מכאן.
+ */
 export const spacing = {
   xs: 4,
   sm: 8,
@@ -23,6 +27,18 @@ export const spacing = {
   lg: 16,
   xl: 24,
   xxl: 32,
+};
+
+/** מידות קבועות של שכבות צפות (סרגל תחתון, כפתור צף) */
+export const layout = {
+  /** גובה סרגל הניווט התחתון, לפני תוספת ה-safe area.
+   *  חייב להכיל אייקון (28) + תווית (16) + ריפודים, אחרת ה-flex מכווץ את
+   *  התווית והאותיות נחתכות. */
+  tabBarHeight: 68,
+  /** גובה הכפתור הצף "הוספת הוצאה" */
+  fabHeight: 54,
+  /** המרחק של הכפתור הצף מתחתית אזור התוכן */
+  fabBottom: 20,
 };
 
 export const radius = {
@@ -58,7 +74,22 @@ export const font = {
   tiny: { fontSize: 11, fontWeight: '600' as const, color: colors.textFaint },
 };
 
-/** סגנון בסיס לכל טקסט בעברית — יישור לימין וכיוון RTL */
+/**
+ * סגנון בסיס לכל טקסט בעברית — יישור לימין וכיוון RTL.
+ * (react-native-web ממפה writingDirection ל-CSS direction)
+ */
 export const rtlText = { textAlign: 'right' as const, writingDirection: 'rtl' as const };
-/** שורה בכיוון ימין→שמאל */
+
+/**
+ * שורה בכיוון ימין→שמאל.
+ * כיוון הבסיס של המסמך הוא LTR (ראה app/+html.tsx ו-I18nManager.allowRTL(false)),
+ * ולכן row-reverse מציב את הילד הראשון בצד ימין — בדיוק כמו בנייטיב.
+ */
 export const rtlRow = { flexDirection: 'row-reverse' as const, alignItems: 'center' as const };
+
+/**
+ * שורה RTL עם רווח קבוע בין הפריטים. עדיף על marginRight/marginLeft ידניים,
+ * שהם מקור חוזר לאייקונים שנדבקים לטקסט.
+ */
+export const rtlRowGap = (gap: number = spacing.sm) => ({ ...rtlRow, gap });
+

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+﻿import React, { useMemo, useState } from 'react';
+import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -9,8 +9,8 @@ import { useMonthData } from '../src/hooks/useMonthData';
 import * as db from '../src/lib/db';
 import { formatDate, shekelsToAgorot, toDateString } from '../src/lib/format';
 import type { Kind } from '../src/lib/types';
-import { Body, Button, Card, Field, H2, IconBubble, Muted } from '../src/ui';
-import { colors, radius, rtlRow, rtlText, spacing } from '../src/theme';
+import { AmountInput, Body, Button, Card, Field, H2, IconBubble, InlineMessage, Muted } from '../src/ui';
+import { colors, radius, rtlRow, spacing } from '../src/theme';
 
 export default function AddTransaction() {
   const router = useRouter();
@@ -26,6 +26,7 @@ export default function AddTransaction() {
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const visible = useMemo(() => categories.filter((c) => c.kind === kind), [categories, kind]);
   const amountAgorot = shekelsToAgorot(amount);
@@ -34,6 +35,7 @@ export default function AddTransaction() {
   async function onSave() {
     if (!householdId || !user || !canSave) return;
     setBusy(true);
+    setError(null);
     try {
       await db.addTransaction({
         householdId,
@@ -47,7 +49,7 @@ export default function AddTransaction() {
       bumpVersion();
       router.back();
     } catch (e) {
-      Alert.alert('לא הצלחנו לשמור', e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(e instanceof Error ? e.message : 'לא הצלחנו לשמור את התנועה');
     } finally {
       setBusy(false);
     }
@@ -55,26 +57,52 @@ export default function AddTransaction() {
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
-      <View style={{ ...rtlRow, justifyContent: 'space-between', padding: spacing.lg, paddingTop: spacing.xl }}>
+      <View
+        style={{
+          ...rtlRow,
+          gap: spacing.md,
+          justifyContent: 'space-between',
+          padding: spacing.lg,
+          paddingTop: spacing.xl,
+        }}
+      >
         <H2>{kind === 'expense' ? 'הוצאה חדשה' : 'הכנסה חדשה'}</H2>
-        <Pressable onPress={() => router.back()} hitSlop={10}>
+        <Pressable accessibilityRole="button" accessibilityLabel="סגירה" onPress={() => router.back()} hitSlop={10}>
           <Ionicons name="close" size={26} color={colors.textMuted} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, paddingBottom: 140 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={{ padding: spacing.lg, paddingTop: 0, paddingBottom: 140 }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
+
         {/* מתג הוצאה / הכנסה */}
-        <View style={{ ...rtlRow, backgroundColor: colors.surface, borderRadius: radius.md, padding: 4, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.border }}>
+        <View
+          style={{
+            ...rtlRow,
+            backgroundColor: colors.surface,
+            borderRadius: radius.md,
+            padding: spacing.xs,
+            marginBottom: spacing.lg,
+            borderWidth: 1,
+            borderColor: colors.border,
+          }}
+        >
           {(['expense', 'income'] as Kind[]).map((k) => (
             <Pressable
               key={k}
+              accessibilityRole="button"
+              accessibilityState={{ selected: kind === k }}
               onPress={() => {
                 setKind(k);
                 setCategoryId(null);
               }}
               style={{
                 flex: 1,
-                paddingVertical: 10,
+                minWidth: 0,
+                paddingVertical: spacing.sm + 2,
                 borderRadius: radius.sm,
                 backgroundColor: kind === k ? colors.primarySoft : 'transparent',
                 alignItems: 'center',
@@ -90,26 +118,7 @@ export default function AddTransaction() {
         {/* סכום */}
         <Card>
           <Muted style={{ marginBottom: spacing.xs }}>סכום</Muted>
-          <View style={{ ...rtlRow }}>
-            <Text style={{ fontSize: 38, fontWeight: '800', color: colors.textFaint }}>₪</Text>
-            <TextInput
-              value={amount}
-              onChangeText={(t) => setAmount(t.replace(/[^\d.]/g, ''))}
-              keyboardType="decimal-pad"
-              autoFocus
-              placeholder="0"
-              placeholderTextColor={colors.textFaint}
-              style={{
-                ...rtlText,
-                flex: 1,
-                fontSize: 40,
-                fontWeight: '800',
-                color: colors.text,
-                paddingVertical: 4,
-                marginRight: spacing.sm,
-              }}
-            />
-          </View>
+          <AmountInput value={amount} onChangeText={setAmount} size="xl" autoFocus accessibilityLabel="סכום" />
         </Card>
 
         {/* קטגוריה */}
@@ -120,6 +129,9 @@ export default function AddTransaction() {
             return (
               <Pressable
                 key={c.id}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
+                accessibilityLabel={c.name}
                 onPress={() => setCategoryId(c.id)}
                 style={{
                   width: '31.5%',
@@ -128,11 +140,15 @@ export default function AddTransaction() {
                   borderColor: active ? c.color : colors.border,
                   borderRadius: radius.md,
                   paddingVertical: spacing.md,
+                  paddingHorizontal: spacing.xs,
                   alignItems: 'center',
                 }}
               >
                 <IconBubble icon={c.icon} color={c.color} size={34} />
-                <Text numberOfLines={1} style={{ marginTop: 6, fontSize: 12, fontWeight: '600', color: colors.text }}>
+                <Text
+                  numberOfLines={1}
+                  style={{ marginTop: spacing.xs, fontSize: 12, fontWeight: '600', color: colors.text }}
+                >
                   {c.name}
                 </Text>
               </Pressable>
@@ -141,19 +157,28 @@ export default function AddTransaction() {
         </View>
 
         {/* עוד */}
-        <Pressable onPress={() => setShowMore((v) => !v)} style={{ ...rtlRow, marginTop: spacing.lg }} hitSlop={8}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityState={{ expanded: showMore }}
+          onPress={() => setShowMore((v) => !v)}
+          style={{ ...rtlRow, gap: spacing.sm, marginTop: spacing.lg }}
+          hitSlop={8}
+        >
           <Ionicons name={showMore ? 'chevron-up' : 'chevron-down'} size={18} color={colors.primary} />
-          <Body style={{ color: colors.primary, fontWeight: '700', marginRight: 4 }}>עוד</Body>
+          <Body style={{ color: colors.primary, fontWeight: '700' }}>עוד</Body>
         </Pressable>
 
         {showMore ? (
           <Card style={{ marginTop: spacing.md }}>
             <Field label="הערה" value={note} onChangeText={setNote} placeholder="למשל: קניות לשבת" />
-            <Muted style={{ marginBottom: 6 }}>תאריך</Muted>
+            <Muted style={{ marginBottom: spacing.xs }}>תאריך</Muted>
             <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="בחירת תאריך"
               onPress={() => setShowPicker(true)}
               style={{
                 ...rtlRow,
+                gap: spacing.sm,
                 justifyContent: 'space-between',
                 borderWidth: 1,
                 borderColor: colors.border,
@@ -199,3 +224,4 @@ export default function AddTransaction() {
     </View>
   );
 }
+

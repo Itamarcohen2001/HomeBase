@@ -27,18 +27,30 @@ export default function History() {
     <Screen refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={colors.primary} />}>
       <H2 style={{ marginBottom: spacing.md }}>תנועות</H2>
 
-      {/* ניווט בין חודשים */}
+      {/* ניווט בין חודשים — ב-RTL: "הקודם" בימין, "הבא" בשמאל */}
       <Card style={{ paddingVertical: spacing.md }}>
-        <View style={{ ...rtlRow, justifyContent: 'space-between' }}>
-          <Pressable onPress={() => setMonth(addMonths(month, -1))} hitSlop={10}>
+        <View style={{ ...rtlRow, gap: spacing.sm, justifyContent: 'space-between' }}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="החודש הקודם"
+            onPress={() => setMonth(addMonths(month, -1))}
+            hitSlop={10}
+          >
             <Ionicons name="chevron-forward" size={22} color={colors.primary} />
           </Pressable>
           <Body style={{ fontWeight: '700' }}>{monthLabel(month)}</Body>
-          <Pressable onPress={() => !isCurrentMonth && setMonth(addMonths(month, 1))} hitSlop={10} disabled={isCurrentMonth}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="החודש הבא"
+            accessibilityState={{ disabled: isCurrentMonth }}
+            onPress={() => !isCurrentMonth && setMonth(addMonths(month, 1))}
+            hitSlop={10}
+            disabled={isCurrentMonth}
+          >
             <Ionicons name="chevron-back" size={22} color={isCurrentMonth ? colors.border : colors.primary} />
           </Pressable>
         </View>
-        <View style={{ ...rtlRow, justifyContent: 'space-between', marginTop: spacing.md }}>
+        <View style={{ ...rtlRow, gap: spacing.sm, justifyContent: 'space-between', marginTop: spacing.md }}>
           <Muted>הכנסות {formatMoney(summary?.income ?? 0)}</Muted>
           <Muted>הוצאות {formatMoney(summary?.expense ?? 0)}</Muted>
           <Muted style={{ color: (summary?.balance ?? 0) < 0 ? colors.danger : colors.primary, fontWeight: '700' }}>
@@ -56,10 +68,12 @@ export default function History() {
         ] as [Filter, string][]).map(([key, label]) => (
           <Pressable
             key={key}
+            accessibilityRole="button"
+            accessibilityState={{ selected: filter === key }}
             onPress={() => setFilter(key)}
             style={{
               paddingHorizontal: spacing.lg,
-              paddingVertical: 8,
+              paddingVertical: spacing.sm,
               borderRadius: radius.pill,
               backgroundColor: filter === key ? colors.primary : colors.surface,
               borderWidth: 1,
@@ -80,18 +94,21 @@ export default function History() {
           rows.map((t, i) => (
             <Pressable
               key={t.id}
+              accessibilityRole="button"
+              accessibilityLabel={`עריכת תנועה ${t.categories?.name ?? ''}`}
               onPress={() => router.push({ pathname: '/transaction/[id]', params: { id: t.id } })}
               style={{
                 ...rtlRow,
+                gap: spacing.sm,
                 justifyContent: 'space-between',
                 paddingVertical: spacing.md,
                 borderTopWidth: i === 0 ? 0 : 1,
                 borderTopColor: colors.border,
               }}
             >
-              <View style={rtlRow}>
+              <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
                 <IconBubble icon={t.categories?.icon ?? 'pricetag'} color={t.categories?.color ?? colors.textFaint} size={36} />
-                <View style={{ marginRight: spacing.md, flexShrink: 1 }}>
+                <View style={{ flexShrink: 1, minWidth: 0 }}>
                   <Body style={{ fontWeight: '600' }}>{t.categories?.name ?? 'ללא קטגוריה'}</Body>
                   <Muted style={{ fontSize: 12 }} numberOfLines={1}>
                     {formatDate(t.occurred_on)} · {t.profiles?.full_name ?? t.profiles?.email ?? 'לא ידוע'}
@@ -101,8 +118,7 @@ export default function History() {
                 </View>
               </View>
               <Body style={{ fontWeight: '700', color: t.kind === 'income' ? colors.income : colors.text }}>
-                {t.kind === 'income' ? '+' : ''}
-                {formatMoney(t.amount_agorot)}
+                {formatMoney(t.amount_agorot, { signed: t.kind === 'income' })}
               </Body>
             </Pressable>
           ))

@@ -2,11 +2,11 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors } from '../../src/theme';
+import { colors, layout, spacing } from '../../src/theme';
 
 export default function TabsLayout() {
   // במסך מלא (PWA באייפון / מכשירים עם נאץ') צריך להוסיף את גובה
-  // מחוון הבית לסרגל התחתון, אחרת הכפתורים נחתכים.
+  // מחוון הבית לגובה הסרגל, אחרת הכפתורים נחתכים.
   const insets = useSafeAreaInsets();
 
   return (
@@ -15,17 +15,24 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.primary,
         tabBarInactiveTintColor: colors.textFaint,
-        tabBarLabelStyle: { fontSize: 12, fontWeight: '600' },
+        // react-navigation מרנדר את התווית כפריט flex בעמודה. אם האייקון והתווית
+        // יחד גבוהים מהמקום הפנוי, ה-flex מכווץ דווקא את התווית (נמדד: תיבה של
+        // 9px לגופן 12px) והאותיות נחתכות באמצע. flexShrink: 0 + lineHeight
+        // מפורש + סרגל גבוה מספיק פותרים את זה.
+        tabBarLabelStyle: { fontSize: 12, lineHeight: 16, fontWeight: '600', flexShrink: 0 },
+        tabBarIconStyle: { flexShrink: 0 },
+        tabBarItemStyle: { paddingTop: spacing.xs, paddingBottom: spacing.xs },
         tabBarStyle: {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
-          height: 64 + insets.bottom,
-          paddingBottom: 8 + insets.bottom,
-          paddingTop: 6,
+          height: layout.tabBarHeight + insets.bottom,
+          paddingBottom: insets.bottom,
+          paddingTop: 0,
         },
         sceneStyle: { backgroundColor: colors.bg },
       }}
     >
+      {/* סדר ההצהרה הוא שמאל→ימין. בעברית "בית" צריך להיות מימין, ולכן הוא אחרון. */}
       <Tabs.Screen
         name="more"
         options={{

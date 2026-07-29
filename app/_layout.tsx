@@ -1,16 +1,16 @@
 import React, { useEffect } from 'react';
 import { I18nManager, View } from 'react-native';
-import { Stack, useRouter, useSegments } from 'expo-router';
+import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import Head from 'expo-router/head';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { HouseholdProvider, useHousehold } from '../src/context/HouseholdContext';
-import { Loading } from '../src/ui';
+import { DialogProvider, Loading } from '../src/ui';
 import { colors } from '../src/theme';
 
 // אנחנו מיישרים ידנית ל-RTL בכל רכיב (textAlign / row-reverse),
-// כדי שההתנהגות תהיה זהה ב-iOS וב-Android ב-Expo Go ללא צורך בהפעלה מחדש.
+// כדי שההתנהגות תהיה זהה ב-iOS, ב-Android ובוובי. ראה גם app/+html.tsx.
 I18nManager.allowRTL(false);
 
 function Gate() {
@@ -18,11 +18,15 @@ function Gate() {
   const { householdId, loading: hhLoading } = useHousehold();
   const segments = useSegments();
   const router = useRouter();
+  const navigationState = useRootNavigationState();
 
   const busy = authLoading || (Boolean(session) && hhLoading);
+  // לפני שה-navigator עלה, useSegments() מחזיר מערך ריק — וכל ניתוב שנעשה
+  // בשלב הזה גם נכשל וגם "מוחק" את הכתובת שאליה המשתמש ניסה להיכנס.
+  const navigatorReady = Boolean(navigationState?.key);
 
   useEffect(() => {
-    if (busy) return;
+    if (busy || !navigatorReady) return;
 
     const group = segments[0];
     const inAuth = group === '(auth)';
@@ -41,23 +45,29 @@ function Gate() {
       if (!inSetup) router.replace('/setup');
       return;
     }
+    // משתמש מחובר עם משק בית: רק מסכי הכניסה ומסך הפתיחה מנתבים הלאה.
+    // כל שאר הכתובות (כולל רענון על /budgets או /settings) נשארות במקומן.
     const atRoot = (segments as unknown as string[]).length === 0;
-    if (inAuth || inSetup || inWelcome || atRoot) {      router.replace('/(tabs)');
+    if (inAuth || inSetup || inWelcome || atRoot) {
+      router.replace('/(tabs)');
     }
-  }, [busy, configured, session, householdId, segments, router]);
+  }, [busy, navigatorReady, configured, session, householdId, segments, router]);
 
-  if (busy) {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.bg }}>
-        <Loading />
-      </View>
-    );
-  }
-
+  // ה-Stack מרונדר תמיד. אם מחליפים אותו במסך טעינה, ה-navigator מתפרק בכל
+  // שינוי מצב, הכתובת הנוכחית הולכת לאיבוד ורענון במסך פנימי זורק לדף הבית.
   return (
-    <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
-      <Stack.Screen name="add" options={{ presentation: 'modal' }} />
-    </Stack>
+    <>
+      <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
+        <Stack.Screen name="add" options={{ presentation: 'modal' }} />
+      </Stack>
+      {busy ? (
+        <View
+          style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: colors.bg }}
+        >
+          <Loading />
+        </View>
+      ) : null}
+    </>
   );
 }
 
@@ -70,7 +80,9 @@ export default function RootLayout() {
       <StatusBar style="dark" />
       <AuthProvider>
         <HouseholdProvider>
-          <Gate />
+          <DialogProvider>
+            <Gate />
+          </DialogProvider>
         </HouseholdProvider>
       </AuthProvider>
     </SafeAreaProvider>

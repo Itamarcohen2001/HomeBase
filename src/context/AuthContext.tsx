@@ -1,10 +1,19 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
+
+const isWeb = Platform.OS === 'web';
+
+/** כתובת החזרה אחרי התחברות/איפוס סיסמה — דומיין האתר בוובי, deep link בנייטיב */
+function redirectUrl(path: string): string {
+  if (isWeb && typeof window !== 'undefined') return window.location.origin;
+  return Linking.createURL(path);
+}
 
 type AuthValue = {
   session: Session | null;
@@ -67,7 +76,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(async () => {
-    const redirectTo = Linking.createURL('auth-callback');
+    // בדפדפן אין WebBrowser session — צריך לתת ל-Supabase לנווט את החלון עצמו,
+    // ואז detectSessionInUrl (ראה src/lib/supabase.ts) קולט את הטוקן בחזרה.
+    if (isWeb) {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: redirectUrl('auth-callback') },
+      });
+      if (error) throw new Error(translateAuthError(error.message));
+      // ברירת המחדל של supabase-js בוובי היא לנווט בעצמה. אם משום מה היא רק
+      // החזירה כתובת — מנווטים ידנית כדי שהכפתור לא ייתקע ב-loading לנצח.
+      if (data?.url && typeof window !== 'undefined' && window.location.href !== data.url) {
+        window.location.assign(data.url);
+      }
+      return;
+    }
+
+    const redirectTo = redirectUrl('auth-callback');
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo, skipBrowserRedirect: true },
@@ -105,14 +130,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const resetPassword = useCallback(async (email: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim().toLowerCase(), {
-      redirectTo: Linking.createURL('reset-password'),
+      redirectTo: redirectUrl('reset-password'),
     });
     if (error) throw new Error(translateAuthError(error.message));
   }, []);
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut();
-    setSession(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      // אם הטוקן כבר לא תקף בשרת עדיין רוצים לנקות את הסשן המקומי
+      if (error && !/session|token|jwt/i.test(error.message)) {
+        throw new Error(translateAuthError(error.message));
+      }
+    } finally {
+      setSession(null);
+    }
   }, []);
 
   const value = useMemo<AuthValue>(

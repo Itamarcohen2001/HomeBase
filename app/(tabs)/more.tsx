@@ -1,10 +1,10 @@
-import React from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import React, { useState } from 'react';
+import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useHousehold } from '../../src/context/HouseholdContext';
-import { Body, Card, H2, IconBubble, Muted, Screen } from '../../src/ui';
+import { Body, Card, H2, IconBubble, InlineMessage, Muted, Screen, useDialog } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
 
 type Row = {
@@ -26,17 +26,40 @@ export default function More() {
   const router = useRouter();
   const { user, signOut } = useAuth();
   const { household } = useHousehold();
+  const { confirm } = useDialog();
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function onSignOut() {
+    setError(null);
+    const approved = await confirm({
+      title: 'התנתקות',
+      message: 'להתנתק מהחשבון?',
+      confirmText: 'התנתקות',
+      cancelText: 'ביטול',
+      destructive: true,
+    });
+    if (!approved) return;
+    setBusy(true);
+    try {
+      await signOut();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'לא הצלחנו להתנתק');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <Screen>
       <H2 style={{ marginBottom: spacing.lg }}>עוד</H2>
 
       <Card>
-        <View style={rtlRow}>
+        <View style={{ ...rtlRow, gap: spacing.md }}>
           <IconBubble icon="home" color={colors.primary} size={46} />
-          <View style={{ marginRight: spacing.md }}>
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
             <Body style={{ fontWeight: '700' }}>{household?.name ?? 'משק הבית שלי'}</Body>
-            <Muted>{user?.email}</Muted>
+            <Muted numberOfLines={1}>{user?.email}</Muted>
           </View>
         </View>
       </Card>
@@ -45,6 +68,8 @@ export default function More() {
         {ROWS.map((row, i) => (
           <Pressable
             key={row.href}
+            accessibilityRole="button"
+            accessibilityLabel={row.title}
             onPress={() => router.push(row.href as never)}
             style={{
               ...rtlRow,
@@ -54,9 +79,9 @@ export default function More() {
               borderTopColor: colors.border,
             }}
           >
-            <View style={rtlRow}>
+            <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
               <IconBubble icon={row.icon} color={row.color} size={38} />
-              <View style={{ marginRight: spacing.md }}>
+              <View style={{ flexShrink: 1, minWidth: 0 }}>
                 <Body style={{ fontWeight: '600' }}>{row.title}</Body>
                 <Muted style={{ fontSize: 12 }}>{row.subtitle}</Muted>
               </View>
@@ -66,17 +91,14 @@ export default function More() {
         ))}
       </Card>
 
-      <Card
-        onPress={() =>
-          Alert.alert('התנתקות', 'להתנתק מהחשבון?', [
-            { text: 'ביטול', style: 'cancel' },
-            { text: 'התנתקות', style: 'destructive', onPress: () => void signOut() },
-          ])
-        }
-      >
-        <View style={rtlRow}>
+      {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
+
+      <Card onPress={busy ? undefined : onSignOut} accessibilityLabel="התנתקות" testID="hb-signout">
+        <View style={{ ...rtlRow, gap: spacing.sm }}>
           <Ionicons name="log-out-outline" size={20} color={colors.danger} />
-          <Body style={{ marginRight: spacing.sm, color: colors.danger, fontWeight: '700' }}>התנתקות</Body>
+          <Body style={{ color: colors.danger, fontWeight: '700' }}>
+            {busy ? 'מתנתק…' : 'התנתקות'}
+          </Body>
         </View>
       </Card>
     </Screen>

@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, View } from 'react-native';
+﻿import React, { useCallback, useEffect, useState } from 'react';
+import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
 import type { PendingInvite } from '../src/lib/types';
-import { Body, Button, Card, Field, H1, H3, Muted, Screen } from '../src/ui';
+import { Body, Button, Card, Field, H1, H3, InlineMessage, Muted, Screen } from '../src/ui';
 import { colors, rtlRow, spacing } from '../src/theme';
 
 export default function Setup() {
@@ -13,6 +13,7 @@ export default function Setup() {
   const { createHousehold, refreshHouseholds } = useHousehold();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [invites, setInvites] = useState<PendingInvite[]>([]);
 
   const loadInvites = useCallback(async () => {
@@ -29,10 +30,11 @@ export default function Setup() {
 
   async function onCreate() {
     setBusy(true);
+    setError(null);
     try {
       await createHousehold(name.trim() || 'משק הבית שלי');
     } catch (e) {
-      Alert.alert('לא הצלחנו ליצור משק בית', e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(e instanceof Error ? e.message : 'לא הצלחנו ליצור משק בית');
     } finally {
       setBusy(false);
     }
@@ -40,11 +42,12 @@ export default function Setup() {
 
   async function onAccept(invite: PendingInvite) {
     setBusy(true);
+    setError(null);
     try {
       await db.acceptInvite(invite.invite_id);
       await refreshHouseholds();
     } catch (e) {
-      Alert.alert('לא הצלחנו להצטרף', e instanceof Error ? e.message : 'שגיאה לא ידועה');
+      setError(e instanceof Error ? e.message : 'לא הצלחנו להצטרף למשק הבית');
     } finally {
       setBusy(false);
     }
@@ -57,6 +60,8 @@ export default function Setup() {
         <H1 style={{ marginTop: spacing.sm }}>ברוך הבא</H1>
         <Muted>{user?.email}</Muted>
       </View>
+
+      {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
 
       {invites.length > 0 ? (
         <Card>

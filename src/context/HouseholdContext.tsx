@@ -28,6 +28,10 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   const [households, setHouseholds] = useState<Household[]>([]);
   const [householdId, setHouseholdId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // המשתמש שעבורו הנתונים כבר נטענו. כל עוד הוא שונה מהמשתמש הנוכחי אנחנו
+  // עדיין "טוענים" — אחרת יש רגע קצר שבו loading=false ו-householdId=null,
+  // וה-Gate מנתב את המשתמש ל-/setup ומשם לדף הבית (ומאבד רענון בדף פנימי).
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -37,6 +41,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     if (!user || !configured) {
       setHouseholds([]);
       setHouseholdId(null);
+      setLoadedFor(user?.id ?? null);
       setLoading(false);
       return;
     }
@@ -61,6 +66,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'שגיאה בטעינת משק הבית');
     } finally {
+      setLoadedFor(user.id);
       setLoading(false);
     }
   }, [user, configured]);
@@ -90,7 +96,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       households,
       household: households.find((h) => h.id === householdId) ?? null,
       householdId,
-      loading,
+      loading: loading || loadedFor !== (user?.id ?? null),
       error,
       version,
       refreshHouseholds: load,
@@ -98,7 +104,19 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       createHousehold,
       bumpVersion,
     }),
-    [households, householdId, loading, error, version, load, selectHousehold, createHousehold, bumpVersion],
+    [
+      households,
+      householdId,
+      loading,
+      loadedFor,
+      user?.id,
+      error,
+      version,
+      load,
+      selectHousehold,
+      createHousehold,
+      bumpVersion,
+    ],
   );
 
   return <HouseholdContext.Provider value={value}>{children}</HouseholdContext.Provider>;

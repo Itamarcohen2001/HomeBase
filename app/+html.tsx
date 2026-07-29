@@ -9,7 +9,16 @@ import type { PropsWithChildren } from 'react';
  */
 export default function Root({ children }: PropsWithChildren) {
   return (
-    <html lang="he" dir="rtl">
+    // dir="ltr" הוא מכוון ואסור לשנות אותו ל-rtl.
+    // כל האפליקציה מיישרת ל-RTL ידנית: כל שורה היא flexDirection: 'row-reverse'
+    // וכל טקסט מקבל textAlign: 'right' + writingDirection: 'rtl' (ראה src/theme.ts).
+    // זו בדיוק ההתנהגות בנייטיב, שם I18nManager.allowRTL(false) משאיר כיוון בסיס LTR.
+    // אם נגדיר כאן dir="rtl", ה-CSS יפרש 'row' ככיוון ימין→שמאל, ואז 'row-reverse'
+    // יתהפך חזרה ל-שמאל→ימין — וכל השורות באפליקציה ייראו הפוכות (אייקונים בצד הלא נכון,
+    // סדר טאבים הפוך, פס התקדמות מהצד ההפוך, וחיצי חודשים הפוכים).
+    // react-native-web ממילא מוסיף dir="auto" + unicode-bidi: isolate לכל רכיב Text,
+    // ולכן ה-bidi של העברית נשאר תקין גם עם כיוון בסיס LTR.
+    <html lang="he" dir="ltr">
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
@@ -61,4 +70,10 @@ const rootStyle = `
   /* מונע בחירת טקסט בלחיצה ארוכה, שנראית שבורה באפליקציה במסך מלא */
   body { user-select: none; -webkit-user-select: none; }
   input, textarea { user-select: text; -webkit-user-select: text; }
+  /* הדפדפן מצייר מסגרת שחורה גסה סביב שדה ממוקד. אנחנו מסמנים מיקוד בעצמנו
+     (שינוי צבע המסגרת של השדה), ולכן מכבים את ברירת המחדל של הדפדפן. */
+  input:focus, textarea:focus, select:focus { outline: none; }
+  /* שדות מספר: בלי חיצי ה-spinner של הדפדפן */
+  input[type="number"]::-webkit-outer-spin-button,
+  input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 `;

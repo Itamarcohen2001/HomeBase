@@ -1,19 +1,34 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
-import { Body, Button, Card, Field, H3, IconBubble, Muted, PageHeader, Screen } from '../src/ui';
+import {
+  Body,
+  Button,
+  Card,
+  Field,
+  H3,
+  IconBubble,
+  InlineMessage,
+  Muted,
+  PageHeader,
+  Screen,
+  useDialog,
+} from '../src/ui';
 import { colors, rtlRow, spacing } from '../src/theme';
 
 export default function Settings() {
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { confirm } = useDialog();
   const { household, households, householdId, selectHousehold, refreshHouseholds } = useHousehold();
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
+  const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
 
   useEffect(() => {
     setName(household?.name ?? '');
@@ -22,20 +37,43 @@ export default function Settings() {
   async function onRename() {
     if (!householdId || !name.trim()) return;
     setBusy(true);
+    setMessage(null);
     try {
       await db.renameHousehold(householdId, name.trim());
       await refreshHouseholds();
-      Alert.alert('נשמר', 'שם משק הבית עודכן');
+      setMessage({ tone: 'success', text: 'שם משק הבית עודכן' });
     } catch (e) {
-      Alert.alert('שגיאה', e instanceof Error ? e.message : 'לא הצלחנו לשמור');
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'לא הצלחנו לשמור' });
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function onSignOut() {
+    const ok = await confirm({
+      title: 'התנתקות',
+      message: 'להתנתק מהחשבון? תוכל להתחבר שוב בכל רגע.',
+      confirmText: 'התנתקות',
+      cancelText: 'ביטול',
+      destructive: true,
+    });
+    if (!ok) return;
+    setSigningOut(true);
+    setMessage(null);
+    try {
+      await signOut();
+    } catch (e) {
+      setMessage({ tone: 'error', text: e instanceof Error ? e.message : 'ההתנתקות נכשלה' });
+    } finally {
+      setSigningOut(false);
     }
   }
 
   return (
     <Screen>
       <PageHeader title="הגדרות" onBack={() => router.back()} />
+
+      {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
 
       <Card>
         <H3 style={{ marginBottom: spacing.md }}>משק הבית</H3>
@@ -49,18 +87,24 @@ export default function Settings() {
           {households.map((h, i) => (
             <Pressable
               key={h.id}
+              accessibilityRole="button"
+              accessibilityLabel={`מעבר אל ${h.name}`}
+              accessibilityState={{ selected: h.id === householdId }}
               onPress={() => selectHousehold(h.id)}
               style={{
                 ...rtlRow,
+                gap: spacing.sm,
                 justifyContent: 'space-between',
                 paddingVertical: spacing.md,
                 borderTopWidth: i === 0 ? 0 : 1,
                 borderTopColor: colors.border,
               }}
             >
-              <View style={rtlRow}>
+              <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
                 <IconBubble icon="home" color={colors.primary} size={34} />
-                <Body style={{ marginRight: spacing.md }}>{h.name}</Body>
+                <Body numberOfLines={1} style={{ flexShrink: 1 }}>
+                  {h.name}
+                </Body>
               </View>
               {h.id === householdId ? <Ionicons name="checkmark-circle" size={20} color={colors.primary} /> : null}
             </Pressable>
@@ -70,13 +114,13 @@ export default function Settings() {
 
       <Card>
         <H3 style={{ marginBottom: spacing.sm }}>החשבון שלי</H3>
-        <View style={rtlRow}>
+        <View style={{ ...rtlRow, gap: spacing.md }}>
           <IconBubble icon="person" color={colors.primary} size={40} />
-          <View style={{ marginRight: spacing.md }}>
+          <View style={{ flexShrink: 1, minWidth: 0 }}>
             <Body style={{ fontWeight: '600' }}>
               {(user?.user_metadata?.full_name as string | undefined) ?? 'משתמש'}
             </Body>
-            <Muted>{user?.email}</Muted>
+            <Muted numberOfLines={1}>{user?.email}</Muted>
           </View>
         </View>
         <Button
@@ -87,10 +131,11 @@ export default function Settings() {
           style={{ marginTop: spacing.lg }}
         />
         <Button
-          title="התנתקות"
+          title={signingOut ? 'מתנתק…' : 'התנתקות'}
           variant="danger"
           icon="log-out-outline"
-          onPress={() => void signOut()}
+          loading={signingOut}
+          onPress={onSignOut}
           style={{ marginTop: spacing.md }}
         />
       </Card>

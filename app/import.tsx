@@ -8,7 +8,7 @@ import { goBack } from '../src/lib/nav';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
-import { formatDate, formatILS } from '../src/lib/format';
+import { formatDate, formatILS, monthLabel, monthStart } from '../src/lib/format';
 import { parseFile } from '../src/lib/import/parse';
 import { IMPORT_KIND, type ParseResult } from '../src/lib/import/shared';
 import {
@@ -59,6 +59,29 @@ type Message = { tone: 'error' | 'success' | 'info'; text: string } | null;
 
 /** הפרש שנחשב "אותו סכום" בהשוואה לשורת הסה"כ שבקובץ */
 const TOTAL_EPSILON = 0.01;
+
+/**
+ * החודש שאליו שייכות רוב התנועות שיובאו — לשם מנווטים בסיום.
+ * לא לוקחים את התאריך המאוחר ביותר: קובץ שנפרס על שני חודשים (למשל דוח
+ * מסטרקארד של פברואר–מרץ) היה שולח את המשתמש לחודש שבו יש פחות שורות.
+ * שוויון נשבר לטובת החודש המאוחר יותר.
+ */
+function busiestMonth(dates: string[]): string {
+  const counts = new Map<string, number>();
+  for (const date of dates) {
+    const month = `${date.slice(0, 7)}-01`;
+    counts.set(month, (counts.get(month) ?? 0) + 1);
+  }
+  let best = monthStart();
+  let bestCount = -1;
+  for (const [month, count] of [...counts].sort((a, b) => a[0].localeCompare(b[0]))) {
+    if (count >= bestCount) {
+      best = month;
+      bestCount = count;
+    }
+  }
+  return best;
+}
 
 export default function Import() {
   const router = useRouter();
@@ -290,10 +313,14 @@ export default function Import() {
 
       bumpVersion();
       reset();
-      router.replace('/(tabs)/history');
+      // מסך התנועות נפתח על החודש הנוכחי. דוח אשראי מיובא כמעט תמיד אחרי סוף
+      // החודש שאליו הוא שייך, ולכן בלי ההעברה הזאת המשתמש נוחת על חודש ריק
+      // בדיוק אחרי שקיבל הודעה שיובאו לו תנועות.
+      const month = busiestMonth(toWrite.map((r) => r.date));
+      router.replace({ pathname: '/(tabs)/history', params: { month } });
       void notify({
         title: 'הייבוא הושלם',
-        message: count === 1 ? 'יובאה תנועה אחת מהקובץ.' : `יובאו ${count} תנועות מהקובץ.`,
+        message: `${count === 1 ? 'יובאה תנועה אחת' : `יובאו ${count} תנועות`} מהקובץ. הן מוצגות כאן בחודש ${monthLabel(month)}.`,
         tone: 'success',
       });
     } catch (e) {

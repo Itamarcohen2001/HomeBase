@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import { formatDate, formatMoney, monthStart } from '../../src/lib/format';
 import type { Kind } from '../../src/lib/types';
@@ -9,9 +9,19 @@ import { colors, radius, rtlRow, spacing } from '../../src/theme';
 
 type Filter = 'all' | Kind;
 
+const MONTH_PARAM = /^\d{4}-\d{2}-\d{2}$/;
+
 export default function History() {
   const router = useRouter();
-  const [month, setMonth] = useState(monthStart());
+  // החודש נשמר בכתובת ולא ב-state, כדי שמסכים אחרים (למשל הייבוא) יוכלו
+  // לפתוח את המסך ישירות על החודש שאליו שייכות התנועות שהם יצרו.
+  const params = useLocalSearchParams<{ month?: string }>();
+  const month =
+    typeof params.month === 'string' && MONTH_PARAM.test(params.month) ? params.month : monthStart();
+  const setMonth = useCallback(
+    (next: string) => router.setParams({ month: next }),
+    [router],
+  );
   const [filter, setFilter] = useState<Filter>('all');
   const { transactions, summary, loading, reload } = useMonthData(month);
 

@@ -15,9 +15,13 @@ export default function History() {
   const router = useRouter();
   // החודש נשמר בכתובת ולא ב-state, כדי שמסכים אחרים (למשל הייבוא) יוכלו
   // לפתוח את המסך ישירות על החודש שאליו שייכות התנועות שהם יצרו.
+  // מנרמלים ליום הראשון בחודש: כתובת שהוקלדה ידנית עם יום אחר תקינה מבחינת
+  // התצוגה, אבל התקציבים נשמרים לפי ה-1 בחודש ובלעדיה הם פשוט לא היו נטענים.
   const params = useLocalSearchParams<{ month?: string }>();
   const month =
-    typeof params.month === 'string' && MONTH_PARAM.test(params.month) ? params.month : monthStart();
+    typeof params.month === 'string' && MONTH_PARAM.test(params.month)
+      ? `${params.month.slice(0, 7)}-01`
+      : monthStart();
   const setMonth = useCallback(
     (next: string) => router.setParams({ month: next }),
     [router],

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { monthEnd, monthStart } from './format';
 import type {
   Budget,
@@ -247,8 +248,146 @@ export async function listTransactions(
   return attachProfiles(rows);
 }
 
-// ── יעדים ───────────────────────────────────────────────────────────────────
+/** תנועות בטווח תאריכים — משמש את זיהוי הכפילויות בייבוא. */
+export async function listTransactionsInRange(
+  householdId: string,
+  from: string,
+  to: string,
+): Promise<Transaction[]> {
+  return unwrap(
+    await supabase
+      .from('transactions')
+      .select('id,occurred_on,amount_agorot,note,kind')
+      .eq('household_id', householdId)
+      .gte('occurred_on', from)
+      .lte('occurred_on', to),
+  ) as unknown as Transaction[];
+}
 
+// ── ייבוא מהבנק ─────────────────────────────────────────────────────────────
+
+export type ImportRuleInput = { pattern: string; category_id: string };
+
+/**
+ * `import_rules` נוספה במיגרציה 0006. מסד שטרם הריץ אותה מחזיר PGRST205/42P01,
+ * ואז נופלים לאחסון מקומי כדי שהלמידה עדיין תעבוד — ומעלים אותה למסד ברגע
+ * שהטבלה קיימת, כך שגם בן/בת הזוג יראו את אותו קטלוג.
+ */
+const RULES_KEY = (householdId: string) => `homebase.importRules.${householdId}`;
+let importRulesState: 'unknown' | 'present' | 'missing' = 'unknown';
+
+function isMissingTable(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  if (error.code === '42P01' || error.code === 'PGRST205' || error.code === 'PGRST200') return true;
+  return /import_rules/.test(error.message ?? '') && /does not exist|schema cache|find the table/i.test(error.message ?? '');
+}
+
+async function readLocalRules(householdId: string): Promise<ImportRuleInput[]> {
+  try {
+    const raw = await AsyncStorage.getItem(RULES_KEY(householdId));
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+async function writeLocalRules(householdId: string, rules: ImportRuleInput[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(RULES_KEY(householdId), JSON.stringify(rules));
+  } catch {
+    /* אחסון מלא — הלמידה פשוט לא תישמר */
+  }
+}
+
+export async function listImportRules(householdId: string): Promise<ImportRuleInput[]> {
+  if (importRulesState !== 'missing') {
+    const { data, error } = await supabase
+      .from('import_rules')
+      .select('pattern,category_id')
+      .eq('household_id', householdId);
+
+    if (!error) {
+      importRulesState = 'present';
+      const remote = (data ?? []) as ImportRuleInput[];
+      // העלאה חד-פעמית של כללים שנשמרו מקומית לפני שהטבלה נוצרה
+      const local = await readLocalRules(householdId);
+      const missing = local.filter((l) => !remote.some((r) => r.pattern === l.pattern));
+      if (missing.length) {
+        await saveImportRules(householdId, missing);
+        await writeLocalRules(householdId, []);
+        return [...remote, ...missing];
+      }
+      return remote;
+    }
+    if (!isMissingTable(error)) throw new Error(error.message);
+    importRulesState = 'missing';
+  }
+  return readLocalRules(householdId);
+}
+
+export async function saveImportRules(householdId: string, rules: ImportRuleInput[]): Promise<void> {
+  if (!rules.length) return;
+
+  if (importRulesState !== 'missing') {
+    const { error } = await supabase.from('import_rules').upsert(
+      rules.map((r) => ({ household_id: householdId, pattern: r.pattern, category_id: r.category_id })),
+      { onConflict: 'household_id,pattern' },
+    );
+    if (!error) {
+      importRulesState = 'present';
+      return;
+    }
+    if (!isMissingTable(error)) throw new Error(error.message);
+    importRulesState = 'missing';
+  }
+
+  const local = await readLocalRules(householdId);
+  const merged = new Map(local.map((r) => [r.pattern, r.category_id]));
+  for (const r of rules) merged.set(r.pattern, r.category_id);
+  await writeLocalRules(
+    householdId,
+    [...merged].map(([pattern, category_id]) => ({ pattern, category_id })),
+  );
+}
+
+/** הוספת מספר תנועות בבת אחת. מחזיר כמה נוספו בפועל. */
+export async function addTransactionsBulk(
+  rows: {
+    householdId: string;
+    userId: string;
+    categoryId: string | null;
+    kind: Kind;
+    amountAgorot: number;
+    occurredOn: string;
+    note: string | null;
+    isShared?: boolean;
+  }[],
+): Promise<number> {
+  if (!rows.length) return 0;
+  const withShared = await hasSharedColumn();
+
+  const payload = rows.map((r) => {
+    const row: Record<string, unknown> = {
+      household_id: r.householdId,
+      user_id: r.userId,
+      category_id: r.categoryId,
+      kind: r.kind,
+      amount_agorot: r.amountAgorot,
+      occurred_on: r.occurredOn,
+      note: r.note,
+    };
+    if (withShared) row.is_shared = Boolean(r.isShared);
+    return row;
+  });
+
+  const inserted = unwrap(
+    await supabase.from('transactions').insert(payload).select('id'),
+  ) as unknown as { id: string }[];
+  return inserted.length;
+}
+
+// ── יעדים ───────────────────────────────────────────────────────────────────
 export async function listBudgets(householdId: string, month: string): Promise<Budget[]> {
   return unwrap(
     await supabase.from('budgets').select('*').eq('household_id', householdId).eq('month', month),

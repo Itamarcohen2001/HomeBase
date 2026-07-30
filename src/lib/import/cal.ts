@@ -5,7 +5,6 @@ import {
   type ParsedRow,
   findRow,
   headerIndex,
-  isDateCell,
   looksLikeCardCharge,
   norm,
   round2,
@@ -59,7 +58,6 @@ export function parseCal(rows: Matrix): ParseResult {
       continue;
     }
 
-    if (!isDateCell(row[cDate])) continue;
     const date = toDate(row[cDate]);
     const amount = toNumber(row[cCharge]);
     if (!date || !Number.isFinite(amount) || amount === 0) continue;

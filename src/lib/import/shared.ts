@@ -60,11 +60,16 @@ export function isDateCell(value: unknown): value is Date {
   return value instanceof Date && !Number.isNaN(value.getTime());
 }
 
-/** תאריך מקומי — לא toISOString, שמזיז יום אחורה באזורי זמן חיוביים. */
+/**
+ * תאריך → מחרוזת ISO בלי תלות באזור זמן.
+ * SheetJS מייצר תאי תאריך פעם בחצות מקומית ופעם בחצות UTC (תלוי גרסה ואופציות),
+ * ולכן בוחרים את סט ה-getters לפי מה שהתא באמת מייצג — אחרת מקבלים יום שלם הפרש.
+ */
 export function toISODate(value: Date): string {
-  const y = value.getFullYear();
-  const m = String(value.getMonth() + 1).padStart(2, '0');
-  const d = String(value.getDate()).padStart(2, '0');
+  const utcMidnight = value.getUTCHours() === 0 && value.getUTCMinutes() === 0 && value.getUTCSeconds() === 0;
+  const y = utcMidnight ? value.getUTCFullYear() : value.getFullYear();
+  const m = String((utcMidnight ? value.getUTCMonth() : value.getMonth()) + 1).padStart(2, '0');
+  const d = String(utcMidnight ? value.getUTCDate() : value.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 

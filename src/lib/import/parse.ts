@@ -6,9 +6,12 @@ import { parseGeneric } from './generic';
 /**
  * SheetJS נטען דינמית כדי שלא ייכנס ל-bundle הראשי — הוא נדרש רק במסך הייבוא.
  */
-async function readWorkbook(data: ArrayBuffer): Promise<{ name: string; rows: Matrix }[]> {
+async function readWorkbook(data: ArrayBuffer | Uint8Array): Promise<{ name: string; rows: Matrix }[]> {
   const XLSX = await import('xlsx');
-  const wb = XLSX.read(new Uint8Array(data), { type: 'array', cellDates: true });
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+  // בלי cellDates: התאריכים מגיעים כסריאל של אקסל ומומרים אריתמטית,
+  // בלי תלות באזור הזמן של המכשיר (אחרת נופלים ליום הפרש).
+  const wb = XLSX.read(bytes, { type: 'array' });
   return wb.SheetNames.map((name) => {
     const ws = wb.Sheets[name];
     if (!ws || !ws['!ref']) return { name, rows: [] as Matrix };
@@ -34,7 +37,7 @@ function isPoalimSheet(sheet: { name: string; rows: Matrix }): boolean {
 
 export type ImportFile = {
   name: string;
-  data: ArrayBuffer;
+  data: ArrayBuffer | Uint8Array;
 };
 
 export async function parseFile(file: ImportFile): Promise<ParseResult> {

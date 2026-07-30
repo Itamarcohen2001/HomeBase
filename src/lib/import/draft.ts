@@ -92,7 +92,10 @@ export function buildDraft(
   const counts = existingCounts(opts.existing);
   const seen = new Map<string, number>();
 
-  return rows.map((row, i) => {
+  // מיון לפי תאריך כדי שמסך האישור ייקרא כמו דוח — חלק מהקבצים לא ממוינים
+  const ordered = rows.map((row, i) => ({ row, i })).sort((a, b) => a.row.date.localeCompare(b.row.date) || a.i - b.i);
+
+  return ordered.map(({ row, i }) => {
     const agorot = toAgorot(row.amount);
     const key = signature(row.date, agorot, row.description);
     const index = seen.get(key) ?? 0;

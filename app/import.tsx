@@ -252,7 +252,10 @@ export default function Import() {
     if (missingCategory > 0) {
       const approved = await confirm({
         title: 'ייבוא בלי קטגוריה',
-        message: `ל-${missingCategory} תנועות עדיין לא נבחרה קטגוריה. אפשר לייבא כך ולסדר אחר כך במסך התנועות.`,
+        message:
+          missingCategory === 1
+            ? 'לתנועה אחת עדיין לא נבחרה קטגוריה. אפשר לייבא כך ולסדר אחר כך במסך התנועות.'
+            : `ל-${missingCategory} תנועות עדיין לא נבחרה קטגוריה. אפשר לייבא כך ולסדר אחר כך במסך התנועות.`,
         confirmText: 'ייבוא בכל זאת',
         cancelText: 'חזרה לבחירה',
       });
@@ -290,7 +293,7 @@ export default function Import() {
       router.replace('/(tabs)/history');
       void notify({
         title: 'הייבוא הושלם',
-        message: `יובאו ${count} תנועות מהקובץ.`,
+        message: count === 1 ? 'יובאה תנועה אחת מהקובץ.' : `יובאו ${count} תנועות מהקובץ.`,
         tone: 'success',
       });
     } catch (e) {
@@ -417,7 +420,9 @@ export default function Import() {
             {duplicateCount > 0 ? (
               <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
                 <Text testID="hb-import-duplicates">
-                  {`${duplicateCount} מתוך ${rows.length} התנועות כבר קיימות אצלך בתאריך ובסכום האלה, ולכן אינן מסומנות לייבוא.`}
+                  {duplicateCount === 1
+                    ? `תנועה אחת מתוך ${rows.length} כבר קיימת אצלך בתאריך ובסכום האלה, ולכן אינה מסומנת לייבוא.`
+                    : `${duplicateCount} מתוך ${rows.length} התנועות כבר קיימות אצלך בתאריך ובסכום האלה, ולכן אינן מסומנות לייבוא.`}
                 </Text>
               </InlineMessage>
             ) : null}
@@ -425,7 +430,9 @@ export default function Import() {
             {refundCount > 0 ? (
               <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
                 <Text testID="hb-import-refunds">
-                  {`${refundCount} שורות זיכוי (החזר) אינן הוצאה ולכן לא ניתן לייבא אותן.`}
+                  {refundCount === 1
+                    ? 'שורת זיכוי אחת (החזר) אינה הוצאה ולכן לא ניתן לייבא אותה.'
+                    : `${refundCount} שורות זיכוי (החזר) אינן הוצאה ולכן לא ניתן לייבא אותן.`}
                 </Text>
               </InlineMessage>
             ) : null}
@@ -518,7 +525,13 @@ export default function Import() {
             </Body>
           </View>
           <Button
-            title={`ייבוא ${selected.length} תנועות`}
+            title={
+              selected.length === 0
+                ? 'אין תנועות לייבוא'
+                : selected.length === 1
+                  ? 'ייבוא תנועה אחת'
+                  : `ייבוא ${selected.length} תנועות`
+            }
             icon="checkmark"
             size="lg"
             loading={busy}

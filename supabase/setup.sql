@@ -603,3 +603,113 @@ comment on column public.transactions.is_shared is
 -- שאילתות הניתוח מסננות לפי משק בית + חודש ואז מקבצות לפי is_shared/user_id.
 create index if not exists transactions_household_month_shared_idx
   on public.transactions (household_id, period_month, is_shared);
+
+-- ==================== 0006_import_rules.sql ====================
+-- 0006: ייבוא דוחות בנק / כרטיס אשראי.
+--
+-- הטבלה שומרת את הכללים שהמשתמש לימד את המערכת במסך האישור:
+-- "כל תנועה שהתיאור שלה מכיל <תבנית> שייכת לקטגוריה <X>".
+-- הכללים הם לפי משק בית, כדי ששני בני הבית יראו את אותו קטלוג.
+--
+-- זיהוי כפילויות לא דורש עמודה חדשה: החתימה היא
+-- (תאריך + סכום + תיאור מנורמל), ואנחנו סופרים מופעים ולא עושים distinct,
+-- כי שתי עסקאות זהות באותו יום הן מקרה אמיתי (למשל שני תשלומי PAYBOX של 40).
+
+create table if not exists public.import_rules (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households (id) on delete cascade,
+  -- התיאור המנורמל של בית העסק (אותיות קטנות, רווחים מכווצים)
+  pattern text not null,
+  category_id uuid not null references public.categories (id) on delete cascade,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now(),
+  unique (household_id, pattern)
+);
+
+create index if not exists import_rules_household_idx
+  on public.import_rules (household_id);
+
+comment on table public.import_rules is
+  'כללי קטלוג נלמדים לייבוא מהבנק — תבנית תיאור → קטגוריה, לפי משק בית';
+
+alter table public.import_rules enable row level security;
+
+-- אותה תבנית פוליסי כמו שאר טבלאות התוכן (ראה 0002_rls.sql)
+drop policy if exists import_rules_select on public.import_rules;
+create policy import_rules_select on public.import_rules for select to authenticated
+using (public.is_household_member(household_id));
+
+drop policy if exists import_rules_insert on public.import_rules;
+create policy import_rules_insert on public.import_rules for insert to authenticated
+with check (public.is_household_member(household_id));
+
+drop policy if exists import_rules_update on public.import_rules;
+create policy import_rules_update on public.import_rules for update to authenticated
+using (public.is_household_member(household_id))
+with check (public.is_household_member(household_id));
+
+drop policy if exists import_rules_delete on public.import_rules;
+create policy import_rules_delete on public.import_rules for delete to authenticated
+using (public.is_household_member(household_id));
+
+-- ==================== 0007_recurring_shared.sql ====================
+-- 0007 — הוצאה קבועה משותפת
+--
+-- ⚠️ הסדר קריטי: ה-alter חייב לרוץ לפני ה-create or replace, אחרת
+-- `r.is_shared` לא קיים ברשומת הכלל והפונקציה לא תתקמפל.
+--
+-- 🔴 הנקודה שקל לפספס: לא מספיק להוסיף את העמודה לטבלה ואת התיבה לממשק.
+-- `apply_recurring` היא זו שיוצרת בפועל את התנועה בכל חודש, ובלי לעדכן
+-- אותה כל תנועה אוטומטית הייתה נכנסת עם is_shared=false — הפיצ'ר היה
+-- נראה תקין היום ונשבר בשקט בחודש הבא.
+
+alter table public.recurring_rules
+  add column if not exists is_shared boolean not null default false;
+
+comment on column public.recurring_rules.is_shared is
+  'הוצאה קבועה משותפת — כל תנועה שתיווצר ממנה תסומן אוטומטית כמשותפת';
+
+create or replace function public.apply_recurring(p_household_id uuid)
+returns int
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r public.recurring_rules;
+  m date := date_trunc('month', current_date)::date;
+  target date;
+  inserted int := 0;
+begin
+  if not public.is_household_member(p_household_id) then
+    raise exception 'not a member of this household';
+  end if;
+
+  for r in
+    select * from public.recurring_rules
+    where household_id = p_household_id
+      and is_active
+      and (last_run_month is null or last_run_month < m)
+  loop
+    target := least(
+      m + (r.day_of_month - 1),
+      (m + interval '1 month - 1 day')::date
+    );
+
+    if target <= current_date then
+      insert into public.transactions
+        (household_id, user_id, category_id, kind, amount_agorot, occurred_on, note, recurring_rule_id, is_shared)
+      values
+        (r.household_id, r.created_by, r.category_id, r.kind, r.amount_agorot, target, r.title, r.id, r.is_shared)
+      on conflict do nothing;
+
+      update public.recurring_rules set last_run_month = m where id = r.id;
+      inserted := inserted + 1;
+    end if;
+  end loop;
+
+  return inserted;
+end;
+$$;
+
+grant execute on function public.apply_recurring(uuid) to authenticated;

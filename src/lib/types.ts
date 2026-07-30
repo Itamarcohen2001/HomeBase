@@ -74,6 +74,8 @@ export type RecurringRule = {
   day_of_month: number;
   is_active: boolean;
   last_run_month: string | null;
+  /** קיים רק אחרי מיגרציה 0007 — כל תנועה שתיווצר מהכלל תסומן כמשותפת */
+  is_shared?: boolean | null;
   categories?: Pick<Category, 'id' | 'name' | 'icon' | 'color'> | null;
 };
 

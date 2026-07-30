@@ -155,32 +155,41 @@ export async function deleteCategory(id: string): Promise<void> {
 // ── תנועות ──────────────────────────────────────────────────────────────────
 
 /**
- * `is_shared` נוספה במיגרציה 0005. מסד נתונים שטרם הריץ אותה יחזיר שגיאת
- * PostgREST 42703 ("column does not exist") על כל כתיבה שכוללת את העמודה,
- * ואז כל הוספת תנועה תיכשל. במקום להפיל את המשתמש אנחנו מזהים את המצב פעם
- * אחת, זוכרים אותו, ומדרגים למטה: התכונה פשוט לא מוצגת עד שהמיגרציה תרוץ.
+ * `is_shared` נוספה לתנועות במיגרציה 0005 ולהוצאות הקבועות במיגרציה 0007.
+ * מסד נתונים שטרם הריץ אותן יחזיר שגיאת PostgREST 42703 ("column does not
+ * exist") על כל כתיבה שכוללת את העמודה, ואז כל הוספת תנועה תיכשל. במקום
+ * להפיל את המשתמש אנחנו מזהים את המצב פעם אחת, זוכרים אותו, ומדרגים למטה:
+ * התכונה פשוט לא מוצגת עד שהמיגרציה תרוץ.
  */
-let sharedColumnState: 'unknown' | 'present' | 'missing' = 'unknown';
-let sharedColumnProbe: Promise<boolean> | null = null;
-
 function isMissingSharedColumn(error: { code?: string; message?: string } | null): boolean {
   if (!error) return false;
   if (error.code === '42703') return true;
   return /is_shared/i.test(error.message ?? '') && /does not exist|column/i.test(error.message ?? '');
 }
 
-async function probeSharedColumn(): Promise<boolean> {
-  const { error } = await supabase.from('transactions').select('is_shared').limit(1);
-  sharedColumnState = isMissingSharedColumn(error) ? 'missing' : 'present';
-  return sharedColumnState === 'present';
+/** בודק פעם אחת אם `<table>.is_shared` קיים, ושומר את התשובה בזיכרון. */
+function makeSharedColumnProbe(table: 'transactions' | 'recurring_rules'): () => Promise<boolean> {
+  let state: 'unknown' | 'present' | 'missing' = 'unknown';
+  let inFlight: Promise<boolean> | null = null;
+
+  async function probe(): Promise<boolean> {
+    const { error } = await supabase.from(table).select('is_shared').limit(1);
+    state = isMissingSharedColumn(error) ? 'missing' : 'present';
+    return state === 'present';
+  }
+
+  return () => {
+    if (state !== 'unknown') return Promise.resolve(state === 'present');
+    if (!inFlight) inFlight = probe();
+    return inFlight;
+  };
 }
 
-/** האם העמודה קיימת במסד. נבדק פעם אחת ונשמר בזיכרון לכל אורך הריצה. */
-export function hasSharedColumn(): Promise<boolean> {
-  if (sharedColumnState !== 'unknown') return Promise.resolve(sharedColumnState === 'present');
-  if (!sharedColumnProbe) sharedColumnProbe = probeSharedColumn();
-  return sharedColumnProbe;
-}
+/** האם `transactions.is_shared` קיים במסד (מיגרציה 0005). */
+export const hasSharedColumn = makeSharedColumnProbe('transactions');
+
+/** האם `recurring_rules.is_shared` קיים במסד (מיגרציה 0007). */
+export const hasRecurringSharedColumn = makeSharedColumnProbe('recurring_rules');
 
 export async function addTransaction(input: {
   householdId: string;
@@ -470,8 +479,9 @@ export async function upsertRecurring(input: {
   dayOfMonth: number;
   isActive: boolean;
   createdBy: string;
+  isShared?: boolean;
 }): Promise<void> {
-  const payload = {
+  const payload: Record<string, unknown> = {
     household_id: input.householdId,
     category_id: input.categoryId,
     kind: input.kind,
@@ -481,6 +491,7 @@ export async function upsertRecurring(input: {
     is_active: input.isActive,
     created_by: input.createdBy,
   };
+  if (await hasRecurringSharedColumn()) payload.is_shared = Boolean(input.isShared);
   if (input.id) {
     unwrap(await supabase.from('recurring_rules').update(payload).eq('id', input.id).select('id'));
   } else {

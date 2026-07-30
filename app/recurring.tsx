@@ -9,9 +9,11 @@ import * as db from '../src/lib/db';
 import { formatMoney, shekelsToAgorot } from '../src/lib/format';
 import type { Category, Kind, RecurringRule } from '../src/lib/types';
 import {
+  Badge,
   Body,
   Button,
   Card,
+  Checkbox,
   EmptyState,
   Field,
   IconBubble,
@@ -34,6 +36,17 @@ export default function Recurring() {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; rule: RecurringRule | null }>({ open: false, rule: null });
+  const [sharedAvailable, setSharedAvailable] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    void db.hasRecurringSharedColumn().then((ok) => {
+      if (alive) setSharedAvailable(ok);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     if (!householdId) return;
@@ -148,9 +161,16 @@ export default function Recurring() {
               >
                 <IconBubble icon={r.categories?.icon ?? 'repeat'} color={r.categories?.color ?? colors.primary} size={38} />
                 <View style={{ flexShrink: 1, minWidth: 0 }}>
-                  <Body numberOfLines={1} style={{ fontWeight: '600' }}>
-                    {r.title}
-                  </Body>
+                  <View style={{ ...rtlRow, gap: spacing.sm, alignItems: 'center' }}>
+                    <Body numberOfLines={1} style={{ fontWeight: '600', flexShrink: 1 }}>
+                      {r.title}
+                    </Body>
+                    {r.is_shared ? (
+                      <Badge icon="people" color={colors.primary}>
+                        משותף
+                      </Badge>
+                    ) : null}
+                  </View>
                   <Muted numberOfLines={1} style={{ fontSize: 12 }}>
                     {formatMoney(r.amount_agorot)} · בכל {r.day_of_month} בחודש · {r.categories?.name ?? 'ללא קטגוריה'}
                     {r.kind === 'income' ? ' · הכנסה' : ''}
@@ -183,6 +203,7 @@ export default function Recurring() {
         visible={editor.open}
         rule={editor.rule}
         categories={categories}
+        sharedAvailable={sharedAvailable}
         onClose={() => setEditor({ open: false, rule: null })}
         onSaved={async () => {
           setEditor({ open: false, rule: null });
@@ -198,12 +219,14 @@ function RuleEditor({
   visible,
   rule,
   categories,
+  sharedAvailable,
   onClose,
   onSaved,
 }: {
   visible: boolean;
   rule: RecurringRule | null;
   categories: Category[];
+  sharedAvailable: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -214,6 +237,7 @@ function RuleEditor({
   const [day, setDay] = useState('1');
   const [kind, setKind] = useState<Kind>('expense');
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [isShared, setIsShared] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -224,6 +248,7 @@ function RuleEditor({
     setDay(String(rule?.day_of_month ?? 1));
     setKind(rule?.kind ?? 'expense');
     setCategoryId(rule?.category_id ?? null);
+    setIsShared(Boolean(rule?.is_shared));
     setError(null);
   }, [visible, rule]);
 
@@ -247,6 +272,7 @@ function RuleEditor({
         dayOfMonth: dayNum,
         isActive: rule?.is_active ?? true,
         createdBy: user.id,
+        isShared: kind === 'expense' && isShared,
       });
       onSaved();
     } catch (e) {
@@ -262,7 +288,7 @@ function RuleEditor({
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
       <View style={{ flex: 1, backgroundColor: colors.bg, padding: spacing.lg, paddingTop: spacing.xl }}>
         <PageHeader title={rule ? 'עריכת קבועה' : 'הוצאה קבועה חדשה'} onBack={onClose} />
-        <ScrollView keyboardShouldPersistTaps="handled">
+        <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.xxl }}>
           {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
           <Card>
             <View
@@ -315,6 +341,22 @@ function RuleEditor({
               placeholder="1"
               hint="אם החודש קצר יותר, התנועה תירשם ביום האחרון של החודש"
             />
+
+            {/* הוצאה משותפת — מעל רשת הקטגוריות, לא כאלמנט האחרון בגלילה, כדי
+                שלא ייפול מתחת לקו הקיפול (באג 1 מסבב 2). כל תנועה שתיווצר
+                מהכלל הזה תירש את הסימון דרך apply_recurring. */}
+            {sharedAvailable && kind === 'expense' ? (
+              <Checkbox
+                testID="hb-recurring-shared"
+                value={isShared}
+                onValueChange={setIsShared}
+                icon="people"
+                label="הוצאה משותפת"
+                hint="לא תיזקף לאף אחד בפיצול בין בני הבית"
+                accessibilityLabel="הוצאה משותפת"
+                style={{ marginBottom: spacing.lg }}
+              />
+            ) : null}
 
             <Muted style={{ marginBottom: spacing.sm }}>קטגוריה</Muted>
             <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>

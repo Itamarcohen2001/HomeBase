@@ -65,22 +65,24 @@ const TOTAL_EPSILON = 0.01;
  * לא לוקחים את התאריך המאוחר ביותר: קובץ שנפרס על שני חודשים (למשל דוח
  * מסטרקארד של פברואר–מרץ) היה שולח את המשתמש לחודש שבו יש פחות שורות.
  * שוויון נשבר לטובת החודש המאוחר יותר.
+ * מוחזרת גם הספירה של אותו חודש, כדי שההודעה למשתמש תוכל לומר את האמת
+ * כשהייבוא נפרס על כמה חודשים ורק חלק מהשורות נראות במסך שאליו נוחתים.
  */
-function busiestMonth(dates: string[]): string {
+function busiestMonth(dates: string[]): { month: string; inMonth: number; months: number } {
   const counts = new Map<string, number>();
   for (const date of dates) {
     const month = `${date.slice(0, 7)}-01`;
     counts.set(month, (counts.get(month) ?? 0) + 1);
   }
   let best = monthStart();
-  let bestCount = -1;
+  let bestCount = 0;
   for (const [month, count] of [...counts].sort((a, b) => a[0].localeCompare(b[0]))) {
     if (count >= bestCount) {
       best = month;
       bestCount = count;
     }
   }
-  return best;
+  return { month: best, inMonth: bestCount, months: counts.size };
 }
 
 export default function Import() {
@@ -316,11 +318,17 @@ export default function Import() {
       // מסך התנועות נפתח על החודש הנוכחי. דוח אשראי מיובא כמעט תמיד אחרי סוף
       // החודש שאליו הוא שייך, ולכן בלי ההעברה הזאת המשתמש נוחת על חודש ריק
       // בדיוק אחרי שקיבל הודעה שיובאו לו תנועות.
-      const month = busiestMonth(toWrite.map((r) => r.date));
+      const { month, inMonth, months } = busiestMonth(toWrite.map((r) => r.date));
       router.replace({ pathname: '/(tabs)/history', params: { month } });
+      const imported = count === 1 ? 'יובאה תנועה אחת' : `יובאו ${count} תנועות`;
       void notify({
         title: 'הייבוא הושלם',
-        message: `${count === 1 ? 'יובאה תנועה אחת' : `יובאו ${count} תנועות`} מהקובץ. הן מוצגות כאן בחודש ${monthLabel(month)}.`,
+        // כשהקובץ נפרס על כמה חודשים רואים במסך רק את השורות של החודש שאליו
+        // נוחתים. אסור להבטיח שכולן שם — המשתמש יספור ויחשוב שחלק נבלעו.
+        message:
+          months > 1
+            ? `${imported} מהקובץ, על פני יותר מחודש אחד. ${inMonth === 1 ? 'אחת מהן מוצגת' : `${inMonth} מהן מוצגות`} כאן בחודש ${monthLabel(month)} — אפשר לדפדף לחודשים הסמוכים כדי לראות את השאר.`
+            : `${imported} מהקובץ. ${count === 1 ? 'היא מוצגת' : 'הן מוצגות'} כאן בחודש ${monthLabel(month)}.`,
         tone: 'success',
       });
     } catch (e) {

@@ -228,30 +228,30 @@ export function Card({
 }
 
 // ── Text helpers ────────────────────────────────────────────────────────────
-type TextProps = { children: React.ReactNode; style?: any; numberOfLines?: number };
+type TextProps = { children: React.ReactNode; style?: any; numberOfLines?: number; testID?: string };
 
 export const H1 = (p: TextProps) => (
-  <Text numberOfLines={p.numberOfLines} style={[font.h1, rtlText, p.style]}>
+  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h1, rtlText, p.style]}>
     {p.children}
   </Text>
 );
 export const H2 = (p: TextProps) => (
-  <Text numberOfLines={p.numberOfLines} style={[font.h2, rtlText, p.style]}>
+  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h2, rtlText, p.style]}>
     {p.children}
   </Text>
 );
 export const H3 = (p: TextProps) => (
-  <Text numberOfLines={p.numberOfLines} style={[font.h3, rtlText, p.style]}>
+  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h3, rtlText, p.style]}>
     {p.children}
   </Text>
 );
 export const Body = (p: TextProps) => (
-  <Text numberOfLines={p.numberOfLines} style={[font.body, rtlText, p.style]}>
+  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.body, rtlText, p.style]}>
     {p.children}
   </Text>
 );
 export const Muted = (p: TextProps) => (
-  <Text numberOfLines={p.numberOfLines} style={[font.small, rtlText, p.style]}>
+  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.small, rtlText, p.style]}>
     {p.children}
   </Text>
 );

@@ -1,491 +1,808 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { goBack } from '../src/lib/nav';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
-import { formatDate, formatMoney } from '../src/lib/format';
-import { errorText } from '../src/lib/authErrors';
+import { formatDate, formatILS } from '../src/lib/format';
+import { parseFile } from '../src/lib/import/parse';
+import { IMPORT_KIND, type ParseResult } from '../src/lib/import/shared';
+import {
+  buildDraft,
+  noteFor,
+  rulesToLearn,
+  toAgorot,
+  type DraftRow,
+  type ImportRule,
+} from '../src/lib/import/draft';
 import type { Category } from '../src/lib/types';
-import { ImportError, type ParseResult, parseFile } from '../src/lib/import/parse';
-import { type DraftRow, buildDraft, noteFor, rulesToLearn, toAgorot } from '../src/lib/import/draft';
 import {
   Badge,
   Body,
   Button,
   Card,
   Checkbox,
+  Divider,
   H3,
   IconBubble,
   InlineMessage,
   Muted,
   PageHeader,
-  Screen,
+  useDialog,
 } from '../src/ui';
-import { colors, radius, rtlRow, spacing } from '../src/theme';
+import { colors, font, layout, radius, rtlRow, rtlText, spacing } from '../src/theme';
+import { errorText } from '../src/lib/authErrors';
 
-const ACCEPTED = [
+/** סוגי הקבצים שאפשר להעלות. ב-web צריך גם סיומות, כי דפדפנים לא תמיד
+ *  מזהים MIME לקבצי אקסל שיוצאו מאתרי הבנקים. */
+const WEB_ACCEPT = [
+  '.xls',
+  '.xlsx',
+  '.csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'text/csv',
+].join(',');
+
+const NATIVE_TYPES = [
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
   'text/comma-separated-values',
-  'application/csv',
-  // חלק מהדפדפנים לא מזהים את ה-MIME של קבצי הבנק, ולכן גם הסיומות עצמן
-  '.xls',
-  '.xlsx',
-  '.csv',
 ];
 
-/** במסך הייבוא הסכומים מוצגים עם אגורות, כדי שאפשר יהיה להשוות מול הדוח של הבנק. */
-const money = (agorot: number) => formatMoney(agorot, { decimals: true });
+type Message = { tone: 'error' | 'success' | 'info'; text: string } | null;
 
-/** ממיר את מה ש-DocumentPicker מחזיר לבייטים, גם בוובי וגם בנייטיב. */
-async function readAsset(asset: DocumentPicker.DocumentPickerAsset): Promise<Uint8Array> {
-  const file = (asset as unknown as { file?: File }).file;
-  if (file && typeof file.arrayBuffer === 'function') {
-    return new Uint8Array(await file.arrayBuffer());
-  }
-  const res = await fetch(asset.uri);
-  return new Uint8Array(await res.arrayBuffer());
-}
+/** הפרש שנחשב "אותו סכום" בהשוואה לשורת הסה"כ שבקובץ */
+const TOTAL_EPSILON = 0.01;
 
-export default function ImportScreen() {
+export default function Import() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { householdId, bumpVersion } = useHousehold();
+  const { confirm, notify } = useDialog();
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
+  const [fileName, setFileName] = useState<string | null>(null);
   const [result, setResult] = useState<ParseResult | null>(null);
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [picker, setPicker] = useState<string | null>(null);
+  const [sharedAvailable, setSharedAvailable] = useState(false);
+  const [sharedAll, setSharedAll] = useState(false);
+  const [pickerRowId, setPickerRowId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<Message>(null);
+  // גובה הפוטר הצף נמדד בפועל. בלי זה הפוטר מכסה את סוף התוכן ולחיצה על
+  // האלמנט האחרון פוגעת בפוטר במקום בו (באג ידוע מסבב קודם).
+  const [footerHeight, setFooterHeight] = useState(layout.fabHeight + spacing.lg * 2);
 
-  const selected = useMemo(() => rows.filter((r) => r.selected), [rows]);
-  const selectedTotal = useMemo(() => selected.reduce((a, r) => a + toAgorot(r.amount), 0), [selected]);
-  const missingCategory = useMemo(() => selected.filter((r) => !r.categoryId).length, [selected]);
-  const duplicates = useMemo(() => rows.filter((r) => r.duplicate).length, [rows]);
+  const knownRules = useRef<ImportRule[]>([]);
+  const webInput = useRef<HTMLInputElement | null>(null);
 
-  const patch = useCallback((id: string, next: Partial<DraftRow>) => {
-    setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...next } : r)));
+  useEffect(() => {
+    let alive = true;
+    void db.hasSharedColumn().then((ok) => {
+      if (alive) setSharedAvailable(ok);
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  async function onPick() {
-    setError(null);
-    setDone(null);
-    if (!householdId) return;
-    setBusy(true);
+  const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+
+  const selected = useMemo(() => rows.filter((r) => r.selected && !r.isRefund), [rows]);
+  const selectedTotal = useMemo(
+    () => selected.reduce((sum, r) => sum + toAgorot(r.amount), 0) / 100,
+    [selected],
+  );
+
+  const totalsMismatch =
+    result?.statedTotal != null && Math.abs(result.statedTotal - result.parsedTotal) > TOTAL_EPSILON;
+
+  const duplicateCount = useMemo(() => rows.filter((r) => r.duplicate).length, [rows]);
+  const refundCount = useMemo(() => rows.filter((r) => r.isRefund).length, [rows]);
+
+  // ── קריאת הקובץ ───────────────────────────────────────────────────────────
+
+  const load = useCallback(
+    async (name: string, data: ArrayBuffer) => {
+      if (!householdId) {
+        setMessage({ tone: 'error', text: 'לא נבחר משק בית' });
+        return;
+      }
+      setBusy(true);
+      setMessage(null);
+      try {
+        const parsed = await parseFile({ name, data });
+        const dates = parsed.rows.map((r) => r.date).sort();
+        const [allCategories, existing, rules] = await Promise.all([
+          db.listCategories(householdId),
+          db.listTransactionsInRange(householdId, dates[0], dates[dates.length - 1]),
+          db.listImportRules(householdId).catch(() => [] as ImportRule[]),
+        ]);
+        // דוחות אשראי הם הוצאות בלבד — הבורר מציג רק קטגוריות הוצאה
+        const expenseCategories = allCategories.filter((c) => c.kind === IMPORT_KIND);
+        knownRules.current = rules;
+        setCategories(expenseCategories);
+        setResult(parsed);
+        setRows(buildDraft(parsed.rows, { categories: expenseCategories, existing, rules }));
+        setFileName(name);
+        setSharedAll(false);
+      } catch (e) {
+        setResult(null);
+        setRows([]);
+        setFileName(null);
+        setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לקרוא את הקובץ') });
+      } finally {
+        setBusy(false);
+      }
+    },
+    [householdId],
+  );
+
+  /** ב-web יש אובייקט `File` אמיתי; בנייטיב מקבלים `file://` וקוראים דרך fetch. */
+  async function assetToBuffer(asset: DocumentPicker.DocumentPickerAsset): Promise<ArrayBuffer> {
+    if (asset.file) return asset.file.arrayBuffer();
+    const response = await fetch(asset.uri);
+    return response.arrayBuffer();
+  }
+
+  async function onPickFile() {
+    setMessage(null);
+    // ב-web אנחנו מפעילים input אמיתי שיושב ב-DOM (ראה WebFileInput למטה)
+    if (Platform.OS === 'web') {
+      webInput.current?.click();
+      return;
+    }
     try {
-      const picked = await DocumentPicker.getDocumentAsync({ type: ACCEPTED, copyToCacheDirectory: true });
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: NATIVE_TYPES,
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
       if (picked.canceled || !picked.assets?.length) return;
       const asset = picked.assets[0];
-      const data = await readAsset(asset);
-      const parsed = await parseFile({ name: asset.name ?? 'file.xlsx', data });
-
-      const [cats, rules] = await Promise.all([db.listCategories(householdId), db.listImportRules(householdId)]);
-      const dates = parsed.rows.map((r) => r.date).sort();
-      const existing = dates.length
-        ? await db.listTransactionsInRange(householdId, dates[0], dates[dates.length - 1])
-        : [];
-
-      setCategories(cats);
-      setResult(parsed);
-      setRows(buildDraft(parsed.rows, { categories: cats, existing, rules }));
+      await load(asset.name, await assetToBuffer(asset));
     } catch (e) {
-      setResult(null);
-      setRows([]);
-      setError(e instanceof ImportError ? e.message : errorText(e, 'לא הצלחנו לקרוא את הקובץ'));
-    } finally {
-      setBusy(false);
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לפתוח את הקובץ') });
     }
   }
 
+  async function onWebFile(file: File) {
+    try {
+      await load(file.name, await file.arrayBuffer());
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לפתוח את הקובץ') });
+    }
+  }
+
+  // ── עריכת השורות ──────────────────────────────────────────────────────────
+
+  function toggleRow(row: DraftRow, next: boolean) {
+    if (next && row.isRefund) {
+      // amount_agorot במסד חייב להיות חיובי — זיכוי אינו הוצאה ואי אפשר לרשום אותו
+      setMessage({
+        tone: 'error',
+        text: 'שורת זיכוי (החזר) אינה הוצאה ולכן לא ניתן לייבא אותה. אפשר לרשום אותה ידנית כהכנסה.',
+      });
+      return;
+    }
+    setMessage(null);
+    setRows((rs) =>
+      rs.map((r) => (r.id === row.id ? { ...r, selected: next, shared: next && sharedAll } : r)),
+    );
+  }
+
+  function setAllSelected(next: boolean) {
+    setRows((rs) =>
+      rs.map((r) => {
+        const isSelected = next ? !r.isRefund : false;
+        return { ...r, selected: isSelected, shared: isSelected && sharedAll };
+      }),
+    );
+    setMessage(
+      next && rows.some((r) => r.isRefund)
+        ? { tone: 'info', text: 'שורות זיכוי לא נכללו בסימון — לא ניתן לייבא החזר כהוצאה.' }
+        : null,
+    );
+  }
+
+  function toggleSharedAll(next: boolean) {
+    setSharedAll(next);
+    setRows((rs) => rs.map((r) => ({ ...r, shared: next && r.selected && !r.isRefund })));
+  }
+
+  function chooseCategory(rowId: string, categoryId: string | null) {
+    setPickerRowId(null);
+    setRows((rs) =>
+      rs.map((r) =>
+        r.id === rowId
+          ? // 'user' מסמן שהמשתמש בחר בעצמו — רק כאלה נלמדים ככלל לפעם הבאה
+            { ...r, categoryId, categorySource: categoryId ? 'user' : 'none' }
+          : r,
+      ),
+    );
+  }
+
+  function reset() {
+    setResult(null);
+    setRows([]);
+    setFileName(null);
+    setSharedAll(false);
+    setMessage(null);
+  }
+
+  // ── כתיבה ─────────────────────────────────────────────────────────────────
+
   async function onImport() {
-    if (!householdId || !user || !selected.length) return;
+    if (!householdId || !user) return;
+    // סינון הגנתי: גם אם משהו סימן שורת זיכוי, היא לא תגיע למסד
+    const toWrite = rows.filter((r) => r.selected && !r.isRefund);
+    if (!toWrite.length) {
+      setMessage({ tone: 'error', text: 'לא סומנה אף תנועה לייבוא' });
+      return;
+    }
+
+    const missingCategory = toWrite.filter((r) => !r.categoryId).length;
+    if (missingCategory > 0) {
+      const approved = await confirm({
+        title: 'ייבוא בלי קטגוריה',
+        message: `ל-${missingCategory} תנועות עדיין לא נבחרה קטגוריה. אפשר לייבא כך ולסדר אחר כך במסך התנועות.`,
+        confirmText: 'ייבוא בכל זאת',
+        cancelText: 'חזרה לבחירה',
+      });
+      if (!approved) return;
+    }
+
     setBusy(true);
-    setError(null);
+    setMessage(null);
     try {
       const count = await db.addTransactionsBulk(
-        selected.map((r) => ({
+        toWrite.map((r) => ({
           householdId,
           userId: user.id,
           categoryId: r.categoryId,
-          kind: 'expense' as const,
+          kind: IMPORT_KIND,
           amountAgorot: toAgorot(r.amount),
           occurredOn: r.date,
           note: noteFor(r),
-          isShared: r.shared,
+          isShared: sharedAvailable && r.shared,
         })),
       );
-      const learn = rulesToLearn(selected, []);
-      if (learn.length) await db.saveImportRules(householdId, learn);
+
+      // לומדים רק קטגוריות שהמשתמש בחר בעצמו, כדי שהפעם הבאה תהיה מדויקת יותר
+      const learn = rulesToLearn(rows, knownRules.current);
+      if (learn.length) {
+        try {
+          await db.saveImportRules(householdId, learn);
+        } catch {
+          /* הלמידה היא בונוס — כישלון בה לא אמור להפיל ייבוא שכבר נכתב */
+        }
+      }
+
       bumpVersion();
-      setResult(null);
-      setRows([]);
-      setDone(`יובאו ${count} תנועות. אפשר לראות אותן במסך התנועות.`);
+      reset();
+      router.replace('/(tabs)/history');
+      void notify({
+        title: 'הייבוא הושלם',
+        message: `יובאו ${count} תנועות מהקובץ.`,
+        tone: 'success',
+      });
     } catch (e) {
-      setError(errorText(e, 'לא הצלחנו לייבא'));
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לייבא את התנועות') });
     } finally {
       setBusy(false);
     }
   }
 
-  const totalMismatch =
-    result?.statedTotal != null && Math.abs(result.statedTotal - result.parsedTotal) > 0.009;
+  // ── תצוגה ─────────────────────────────────────────────────────────────────
+
+  const pickerRow = pickerRowId ? rows.find((r) => r.id === pickerRowId) ?? null : null;
 
   return (
-    <Screen>
-      <PageHeader title="ייבוא מהבנק" onBack={() => goBack(router, '/(tabs)/more')} />
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'left', 'right']}>
+      <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.lg }}>
+        <PageHeader title="ייבוא דוח אשראי" onBack={() => goBack(router, '/(tabs)/more')} />
+      </View>
 
-      {error ? <InlineMessage tone="error">{error}</InlineMessage> : null}
-      {done ? <InlineMessage tone="success">{done}</InlineMessage> : null}
+      <ScrollView
+        contentContainerStyle={{
+          paddingHorizontal: spacing.lg,
+          paddingBottom: result ? footerHeight + insets.bottom + spacing.lg : spacing.xxl + insets.bottom,
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* input אמיתי ב-DOM: יציב לאוטומציה, ולא נמחק אחרי הבחירה */}
+        {Platform.OS === 'web' ? (
+          <WebFileInput inputRef={webInput} onFile={onWebFile} />
+        ) : null}
 
-      {!result ? (
-        <Card>
-          <View style={{ alignItems: 'center', paddingVertical: spacing.md }}>
-            <IconBubble icon="cloud-upload" color={colors.primary} size={56} />
-            <H3 style={{ marginTop: spacing.md }}>ייבוא דוח כרטיס אשראי</H3>
-            <Muted style={{ textAlign: 'center', marginTop: spacing.sm }}>
-              בוחרים את קובץ הדוח שהורדתם מהבנק, עוברים על הרשימה, ורק מה שתאשרו ייכנס לתקציב.
-            </Muted>
-          </View>
-          <Muted style={{ marginTop: spacing.lg, marginBottom: spacing.xs }}>קבצים נתמכים</Muted>
-          <Body>Excel‏ (xlsx‏, xls) ו-CSV מבנק הפועלים ומאוצר החייל.</Body>
-          <Button
-            title="בחירת קובץ"
-            icon="document-attach"
-            onPress={onPick}
-            loading={busy}
-            size="lg"
-            style={{ marginTop: spacing.lg }}
-          />
-        </Card>
-      ) : (
-        <>
-          <Card>
-            <View style={{ ...rtlRow, justifyContent: 'space-between', alignItems: 'center', gap: spacing.sm }}>
-              <View style={{ flexShrink: 1, minWidth: 0 }}>
-                <Body style={{ fontWeight: '700' }} numberOfLines={1}>
-                  {result.source}
-                </Body>
-                <Muted style={{ fontSize: 12 }}>
-                  {result.rows.length} תנועות בקובץ · סה״כ {money(toAgorot(result.parsedTotal))}
-                </Muted>
+        {!result ? (
+          <>
+            {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
+
+            <Card>
+              <View style={{ ...rtlRow, gap: spacing.md, marginBottom: spacing.md }}>
+                <IconBubble icon="cloud-upload" color={colors.primary} size={46} />
+                <View style={{ flexShrink: 1, minWidth: 0 }}>
+                  <Body style={{ fontWeight: '700' }}>העלאת דוח מחברת האשראי</Body>
+                  <Muted style={{ fontSize: 12 }}>קבצי Excel‏ (xlsx / xls) או CSV</Muted>
+                </View>
               </View>
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="בחירת קובץ אחר"
-                onPress={onPick}
-                style={{ minHeight: 44, minWidth: 44, alignItems: 'center', justifyContent: 'center' }}
-              >
-                <Ionicons name="refresh" size={22} color={colors.primary} />
-              </Pressable>
-            </View>
+              <Muted style={{ marginBottom: spacing.lg }}>
+                אחרי הבחירה נציג לך את כל השורות לאישור — שום דבר לא נרשם לפני שתאשר.
+              </Muted>
+              <Button
+                title={busy ? 'קורא את הקובץ…' : 'בחירת קובץ'}
+                icon="document-attach"
+                size="lg"
+                loading={busy}
+                onPress={onPickFile}
+                testID="hb-import-pick"
+              />
+            </Card>
 
-            {totalMismatch ? (
+            <Card>
+              <H3 style={{ marginBottom: spacing.sm }}>איך מורידים את הדוח</H3>
+              <Muted>
+                בכ.א.ל / אוצר החייל: פירוט עסקאות ← ייצוא לאקסל. בבנק הפועלים: מסטרקארד דירקט ← פירוט
+                חיובים ← ייצוא. אפשר להעלות גם קובץ CSV של כל חברת אשראי אחרת.
+              </Muted>
+            </Card>
+          </>
+        ) : (
+          <>
+            {/* סיכום הקובץ */}
+            <Card testID="hb-import-summary">
+              <View style={{ ...rtlRow, gap: spacing.md }}>
+                <IconBubble icon="document-text" color={colors.primary} size={42} />
+                <View style={{ flexShrink: 1, minWidth: 0 }}>
+                  <Body style={{ fontWeight: '700' }} numberOfLines={2}>
+                    {result.source}
+                  </Body>
+                  <Muted style={{ fontSize: 12 }} numberOfLines={1}>
+                    {fileName}
+                  </Muted>
+                </View>
+              </View>
+
+              <Divider />
+
+              <SummaryLine
+                label="תנועות בקובץ"
+                value={`${result.rows.length}`}
+                testID="hb-import-count"
+              />
+              <SummaryLine
+                label="סכום שנקרא"
+                value={formatILS(result.parsedTotal, { decimals: true })}
+                testID="hb-import-total"
+              />
+              {result.statedTotal != null ? (
+                <SummaryLine
+                  label='סה"כ לפי הקובץ'
+                  value={formatILS(result.statedTotal, { decimals: true })}
+                  testID="hb-import-stated"
+                />
+              ) : null}
+
+              <Button
+                title="בחירת קובץ אחר"
+                variant="ghost"
+                size="sm"
+                icon="swap-horizontal"
+                onPress={onPickFile}
+                testID="hb-import-replace"
+                style={{ marginTop: spacing.md }}
+              />
+            </Card>
+
+            {totalsMismatch ? (
               <InlineMessage tone="error">
-                {`הסכום שחישבנו (${money(toAgorot(result.parsedTotal))}) לא תואם לסכום שכתוב בקובץ ` +
-                  `(${money(toAgorot(result.statedTotal ?? 0))}). כדאי לבדוק את הרשימה לפני ייבוא.`}
+                {`הסכום שקראנו (${formatILS(result.parsedTotal, { decimals: true })}) שונה מהסה"כ שכתוב בקובץ (${formatILS(result.statedTotal ?? 0, { decimals: true })}). כדאי לעבור על השורות לפני הייבוא.`}
               </InlineMessage>
             ) : null}
-            {result.notes.map((n) => (
-              <Muted key={n} style={{ fontSize: 12, marginTop: spacing.sm }}>
-                {n}
-              </Muted>
+
+            {result.notes.map((note, i) => (
+              <InlineMessage key={note} tone="info" style={{ marginBottom: spacing.sm }}>
+                <Text testID={`hb-import-note-${i}`}>{note}</Text>
+              </InlineMessage>
             ))}
-            {duplicates > 0 ? (
-              <Muted style={{ fontSize: 12, marginTop: spacing.sm }}>
-                {duplicates} תנועות כבר קיימות במערכת ולכן לא מסומנות לייבוא.
-              </Muted>
-            ) : null}
-          </Card>
 
-          <Card>
-            <Muted style={{ marginBottom: spacing.sm }}>פעולות מהירות</Muted>
-            <View style={{ ...rtlRow, flexWrap: 'wrap', gap: spacing.sm }}>
-              <BulkButton
-                label="סימון הכול"
-                icon="checkbox"
-                onPress={() => setRows((rs) => rs.map((r) => ({ ...r, selected: true })))}
-              />
-              <BulkButton
-                label="ניקוי הבחירה"
-                icon="square-outline"
-                onPress={() => setRows((rs) => rs.map((r) => ({ ...r, selected: false })))}
-              />
-              <BulkButton
-                label="הכול משותף"
+            {duplicateCount > 0 ? (
+              <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
+                <Text testID="hb-import-duplicates">
+                  {`${duplicateCount} מתוך ${rows.length} התנועות כבר קיימות אצלך בתאריך ובסכום האלה, ולכן אינן מסומנות לייבוא.`}
+                </Text>
+              </InlineMessage>
+            ) : null}
+
+            {refundCount > 0 ? (
+              <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
+                <Text testID="hb-import-refunds">
+                  {`${refundCount} שורות זיכוי (החזר) אינן הוצאה ולכן לא ניתן לייבא אותן.`}
+                </Text>
+              </InlineMessage>
+            ) : null}
+
+            {/* הצ'קבוקס הגורף יושב כאן, מעל הרשימה — לא כאלמנט האחרון בגלילה */}
+            {sharedAvailable ? (
+              <Checkbox
+                testID="hb-import-shared-all"
+                value={sharedAll}
+                onValueChange={toggleSharedAll}
                 icon="people"
-                onPress={() => setRows((rs) => rs.map((r) => (r.selected ? { ...r, shared: true } : r)))}
+                label="סימון הכול כהוצאה משותפת"
+                hint="ההוצאות המסומנות לא ייזקפו לאף אחד בפיצול בין בני הבית"
+                accessibilityLabel="הוצאה משותפת"
+                style={{ marginBottom: spacing.md }}
               />
-              <BulkButton
-                label="ביטול משותף"
-                icon="person"
-                onPress={() => setRows((rs) => rs.map((r) => ({ ...r, shared: false })))}
-              />
-            </View>
-          </Card>
-
-          {rows.map((row) => (
-            <DraftCard
-              key={row.id}
-              row={row}
-              categories={categories}
-              onToggle={() => patch(row.id, { selected: !row.selected })}
-              onShare={() => patch(row.id, { shared: !row.shared })}
-              onPickCategory={() => setPicker(row.id)}
-            />
-          ))}
-
-          <Card>
-            <View style={{ ...rtlRow, justifyContent: 'space-between', marginBottom: spacing.sm }}>
-              <Muted>נבחרו לייבוא</Muted>
-              <Body style={{ fontWeight: '700' }}>
-                {selected.length} · {money(selectedTotal)}
-              </Body>
-            </View>
-            {missingCategory > 0 ? (
-              <Muted style={{ fontSize: 12, marginBottom: spacing.sm }}>
-                {missingCategory} תנועות בלי קטגוריה — הן ייובאו ללא קטגוריה, אפשר לבחור עכשיו.
-              </Muted>
             ) : null}
-            <Button
-              title={selected.length ? `ייבוא ${selected.length} תנועות` : 'לא נבחרו תנועות'}
-              icon="download"
-              size="lg"
-              onPress={onImport}
-              loading={busy}
-              disabled={!selected.length}
-            />
-          </Card>
-        </>
-      )}
+
+            <View
+              style={{
+                ...rtlRow,
+                justifyContent: 'space-between',
+                gap: spacing.sm,
+                marginBottom: spacing.sm,
+              }}
+            >
+              <H3>שורות לייבוא</H3>
+              <View style={{ ...rtlRow, gap: spacing.sm }}>
+                <Button
+                  title="סימון הכול"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setAllSelected(true)}
+                  testID="hb-import-select-all"
+                />
+                <Button
+                  title="ניקוי"
+                  variant="ghost"
+                  size="sm"
+                  onPress={() => setAllSelected(false)}
+                  testID="hb-import-select-none"
+                />
+              </View>
+            </View>
+
+            <Card style={{ paddingVertical: spacing.xs }}>
+              {rows.map((row, i) => (
+                <ImportRowItem
+                  key={row.id}
+                  row={row}
+                  index={i}
+                  first={i === 0}
+                  category={row.categoryId ? categoryById.get(row.categoryId) ?? null : null}
+                  onToggle={(next) => toggleRow(row, next)}
+                  onPickCategory={() => setPickerRowId(row.id)}
+                />
+              ))}
+            </Card>
+          </>
+        )}
+      </ScrollView>
+
+      {result ? (
+        <View
+          onLayout={(e) => setFooterHeight(e.nativeEvent.layout.height)}
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            padding: spacing.lg,
+            paddingBottom: spacing.lg + insets.bottom,
+            backgroundColor: colors.surface,
+            borderTopWidth: 1,
+            borderTopColor: colors.border,
+          }}
+        >
+          {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
+          <View
+            style={{
+              ...rtlRow,
+              justifyContent: 'space-between',
+              gap: spacing.sm,
+              marginBottom: spacing.md,
+            }}
+          >
+            <Muted testID="hb-import-selected-count">{`${selected.length} מתוך ${rows.length} מסומנות`}</Muted>
+            <Body testID="hb-import-selected-total" style={{ fontWeight: '800' }}>
+              {formatILS(selectedTotal, { decimals: true })}
+            </Body>
+          </View>
+          <Button
+            title={`ייבוא ${selected.length} תנועות`}
+            icon="checkmark"
+            size="lg"
+            loading={busy}
+            disabled={selected.length === 0}
+            onPress={onImport}
+            testID="hb-import-confirm"
+            accessibilityLabel="ייבוא התנועות המסומנות"
+          />
+        </View>
+      ) : null}
 
       <CategoryPicker
-        visible={picker !== null}
+        row={pickerRow}
         categories={categories}
-        onClose={() => setPicker(null)}
-        onSelect={(id, source) => {
-          if (picker) patch(picker, { categoryId: id, categorySource: source });
-          setPicker(null);
-        }}
+        onClose={() => setPickerRowId(null)}
+        onSelect={(categoryId) => pickerRow && chooseCategory(pickerRow.id, categoryId)}
       />
-    </Screen>
+    </SafeAreaView>
   );
 }
 
-function BulkButton({
-  label,
-  icon,
-  onPress,
-}: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  onPress: () => void;
-}) {
+// ── שורת סיכום בכרטיס העליון ────────────────────────────────────────────────
+function SummaryLine({ label, value, testID }: { label: string; value: string; testID?: string }) {
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={{
-        ...rtlRow,
-        gap: spacing.xs + 2,
-        minHeight: 44,
-        paddingHorizontal: spacing.md,
-        alignItems: 'center',
-        borderRadius: radius.pill,
-        borderWidth: 1.5,
-        borderColor: colors.border,
-        backgroundColor: colors.surface,
-      }}
-    >
-      <Ionicons name={icon} size={16} color={colors.primary} />
-      <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{label}</Text>
-    </Pressable>
+    <View style={{ ...rtlRow, justifyContent: 'space-between', gap: spacing.sm, paddingVertical: 2 }}>
+      <Muted>{label}</Muted>
+      <Text testID={testID} style={[font.body, rtlText, { fontWeight: '700' }]}>
+        {value}
+      </Text>
+    </View>
   );
 }
 
-function DraftCard({
+// ── שורה אחת במסך האישור ────────────────────────────────────────────────────
+function ImportRowItem({
   row,
-  categories,
+  index,
+  first,
+  category,
   onToggle,
-  onShare,
   onPickCategory,
 }: {
   row: DraftRow;
-  categories: Category[];
-  onToggle: () => void;
-  onShare: () => void;
+  index: number;
+  first: boolean;
+  category: Category | null;
+  onToggle: (next: boolean) => void;
   onPickCategory: () => void;
 }) {
-  const category = categories.find((c) => c.id === row.categoryId) ?? null;
-  const dim = !row.selected;
+  // ההסבר בעברית למה השורה לא מסומנת מראש — אחרת המשתמש רק רואה תיבה ריקה
+  const reasons: string[] = [];
+  if (row.duplicate) reasons.push('כבר קיימת אצלך תנועה זהה בתאריך ובסכום האלה');
+  if (row.isRefund) reasons.push('זיכוי (החזר) אינו הוצאה ולכן לא ניתן לייבא אותו');
+  if (row.isCardCharge) reasons.push('שורת ריכוז של חיוב כרטיס — הסכום כבר מופיע בשורות הפירוט');
+
+  const detail = (row.detail ?? '').trim();
 
   return (
-    <Card style={{ opacity: dim ? 0.6 : 1 }}>
-      <View style={{ ...rtlRow, gap: spacing.md, alignItems: 'flex-start' }}>
+    <View
+      testID={`hb-import-row-${index}`}
+      style={{
+        paddingVertical: spacing.sm,
+        borderTopWidth: first ? 0 : 1,
+        borderTopColor: colors.border,
+      }}
+    >
+      <View style={{ ...rtlRow, gap: spacing.sm, justifyContent: 'space-between' }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
+          <Checkbox
+            value={row.selected}
+            onValueChange={onToggle}
+            label={row.description}
+            hint={detail ? `${formatDate(row.date)} · ${detail}` : formatDate(row.date)}
+            accessibilityLabel={`לייבא את ${row.description}`}
+            testID={`hb-import-select-${index}`}
+            style={{
+              borderWidth: 0,
+              backgroundColor: 'transparent',
+              paddingHorizontal: 0,
+              paddingVertical: 0,
+            }}
+          />
+        </View>
+        <Text
+          testID={`hb-import-amount-${index}`}
+          style={[font.body, rtlText, { fontWeight: '800', color: row.isRefund ? colors.primary : colors.text }]}
+        >
+          {row.isRefund ? '−' : ''}
+          {formatILS(row.amount, { decimals: true })}
+        </Text>
+      </View>
+
+      <View
+        style={{
+          ...rtlRow,
+          flexWrap: 'wrap',
+          gap: spacing.sm,
+          marginTop: spacing.sm,
+          paddingRight: 34,
+        }}
+      >
         <Pressable
-          accessibilityRole="checkbox"
-          accessibilityLabel={`ייבוא ${row.description}`}
-          aria-checked={row.selected}
-          onPress={onToggle}
-          style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+          accessibilityRole="button"
+          accessibilityLabel={`קטגוריה עבור ${row.description}`}
+          testID={`hb-import-category-${index}`}
+          onPress={onPickCategory}
+          style={({ pressed }) => [
+            {
+              ...rtlRow,
+              gap: spacing.xs + 2,
+              minHeight: 34,
+              paddingHorizontal: spacing.md,
+              paddingVertical: spacing.xs,
+              borderRadius: radius.pill,
+              borderWidth: 1.5,
+              borderColor: category ? category.color : colors.border,
+              backgroundColor: category ? `${category.color}1F` : colors.surface,
+            },
+            pressed && { opacity: 0.75 },
+          ]}
         >
           <Ionicons
-            name={row.selected ? 'checkbox' : 'square-outline'}
-            size={24}
-            color={row.selected ? colors.primary : colors.textFaint}
+            name={(category?.icon as keyof typeof Ionicons.glyphMap) ?? 'pricetag-outline'}
+            size={14}
+            color={category ? category.color : colors.textMuted}
           />
+          <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>
+            {category ? category.name : 'בחירת קטגוריה'}
+          </Text>
+          <Ionicons name="chevron-down" size={13} color={colors.textFaint} />
         </Pressable>
 
-        <View style={{ flex: 1, minWidth: 0 }}>
-          <Body numberOfLines={2} style={{ fontWeight: '600' }}>
-            {row.description}
-          </Body>
-          <Muted style={{ fontSize: 12, marginTop: 2 }}>
-            {formatDate(row.date)} · {money(toAgorot(row.amount))}
-          </Muted>
-
-          <View style={{ ...rtlRow, flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.sm }}>
-            {row.duplicate ? (
-              <Badge icon="copy" color={colors.warning}>
-                כבר קיים במערכת
-              </Badge>
-            ) : null}
-            {row.isCardCharge ? (
-              <Badge icon="card" color={colors.warning}>
-                ריכוז חיוב אשראי
-              </Badge>
-            ) : null}
-            {row.isRefund ? (
-              <Badge icon="return-down-back" color={colors.warning}>
-                זיכוי
-              </Badge>
-            ) : null}
-            {row.shared ? (
-              <Badge icon="people" color={colors.primary}>
-                משותף
-              </Badge>
-            ) : null}
-          </View>
-
-          <View style={{ ...rtlRow, gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`בחירת קטגוריה ל${row.description}`}
-              onPress={onPickCategory}
-              style={{
-                ...rtlRow,
-                gap: spacing.xs + 2,
-                minHeight: 44,
-                paddingHorizontal: spacing.md,
-                alignItems: 'center',
-                borderRadius: radius.pill,
-                borderWidth: 1.5,
-                borderColor: category ? category.color : colors.border,
-                backgroundColor: category ? `${category.color}22` : colors.surface,
-                flexShrink: 1,
-                minWidth: 0,
-              }}
-            >
-              <Ionicons
-                name={(category?.icon as keyof typeof Ionicons.glyphMap) ?? 'pricetag-outline'}
-                size={15}
-                color={category ? category.color : colors.textMuted}
-              />
-              <Text numberOfLines={1} style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>
-                {category ? category.name : 'בחירת קטגוריה'}
-              </Text>
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="checkbox"
-              accessibilityLabel={`סימון ${row.description} כהוצאה משותפת`}
-              aria-checked={row.shared}
-              onPress={onShare}
-              style={{
-                ...rtlRow,
-                gap: spacing.xs + 2,
-                minHeight: 44,
-                paddingHorizontal: spacing.md,
-                alignItems: 'center',
-                borderRadius: radius.pill,
-                borderWidth: 1.5,
-                borderColor: row.shared ? colors.primary : colors.border,
-                backgroundColor: row.shared ? colors.primarySoft : colors.surface,
-              }}
-            >
-              <Ionicons name="people" size={15} color={row.shared ? colors.primary : colors.textMuted} />
-              <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>משותף</Text>
-            </Pressable>
-          </View>
-        </View>
+        {row.duplicate ? (
+          <Badge icon="copy" color={colors.warning}>
+            כפילות
+          </Badge>
+        ) : null}
+        {row.isRefund ? (
+          <Badge icon="return-down-back" color={colors.primary}>
+            זיכוי
+          </Badge>
+        ) : null}
+        {row.isCardCharge ? (
+          <Badge icon="card" color={colors.textMuted}>
+            חיוב כרטיס
+          </Badge>
+        ) : null}
+        {row.shared ? (
+          <Badge icon="people" color={colors.primaryDark}>
+            משותף
+          </Badge>
+        ) : null}
       </View>
-    </Card>
+
+      {reasons.length ? (
+        <Muted style={{ fontSize: 12, marginTop: spacing.xs, paddingRight: 34 }}>
+          {`לא מסומנת: ${reasons.join(' · ')}`}
+        </Muted>
+      ) : null}
+    </View>
   );
 }
 
+// ── בורר קטגוריה ────────────────────────────────────────────────────────────
 function CategoryPicker({
-  visible,
+  row,
   categories,
   onClose,
   onSelect,
 }: {
-  visible: boolean;
+  row: DraftRow | null;
   categories: Category[];
   onClose: () => void;
-  onSelect: (id: string | null, source: DraftRow['categorySource']) => void;
+  onSelect: (categoryId: string | null) => void;
 }) {
-  const expense = categories.filter((c) => c.kind === 'expense');
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <View style={{ flex: 1, backgroundColor: colors.bg, padding: spacing.lg, paddingTop: spacing.xl }}>
-        <PageHeader title="בחירת קטגוריה" onBack={onClose} />
-        <ScrollView contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-          <Card>
-            {expense.map((c, i) => (
-              <Pressable
-                key={c.id}
-                accessibilityRole="button"
-                accessibilityLabel={c.name}
-                onPress={() => onSelect(c.id, 'user')}
-                style={{
-                  ...rtlRow,
-                  gap: spacing.md,
-                  alignItems: 'center',
-                  minHeight: 52,
-                  borderTopWidth: i === 0 ? 0 : 1,
-                  borderTopColor: colors.border,
-                }}
-              >
-                <IconBubble icon={c.icon} color={c.color} size={36} />
-                <Body style={{ fontWeight: '600' }}>{c.name}</Body>
-              </Pressable>
-            ))}
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="ללא קטגוריה"
-              onPress={() => onSelect(null, 'none')}
-              style={{
-                ...rtlRow,
-                gap: spacing.md,
-                alignItems: 'center',
-                minHeight: 52,
-                borderTopWidth: 1,
-                borderTopColor: colors.border,
-              }}
-            >
-              <IconBubble icon="close-circle-outline" color={colors.textMuted} size={36} />
-              <Body style={{ fontWeight: '600' }}>ללא קטגוריה</Body>
-            </Pressable>
-          </Card>
-        </ScrollView>
-      </View>
+    <Modal visible={row !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(10, 26, 20, 0.45)',
+          justifyContent: 'center',
+          padding: spacing.lg,
+        }}
+      >
+        <Pressable
+          onPress={() => undefined}
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: radius.lg,
+            padding: spacing.lg,
+            maxHeight: '80%',
+          }}
+        >
+          <H3 style={{ marginBottom: spacing.xs }}>בחירת קטגוריה</H3>
+          <Muted style={{ marginBottom: spacing.md }} numberOfLines={1}>
+            {row?.description ?? ''}
+          </Muted>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: spacing.sm }}>
+            <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
+              {categories.map((c) => {
+                const active = row?.categoryId === c.id;
+                return (
+                  <Pressable
+                    key={c.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={c.name}
+                    accessibilityState={{ selected: active }}
+                    testID={`hb-import-category-option-${c.id}`}
+                    onPress={() => onSelect(c.id)}
+                    style={{
+                      ...rtlRow,
+                      gap: spacing.xs + 2,
+                      minHeight: 44,
+                      paddingHorizontal: spacing.md,
+                      borderRadius: radius.pill,
+                      borderWidth: 1.5,
+                      borderColor: active ? c.color : colors.border,
+                      backgroundColor: active ? `${c.color}22` : colors.surface,
+                    }}
+                  >
+                    <Ionicons name={c.icon as keyof typeof Ionicons.glyphMap} size={15} color={c.color} />
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{c.name}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </ScrollView>
+
+          <View style={{ ...rtlRow, gap: spacing.sm, marginTop: spacing.md }}>
+            <Button
+              title="ללא קטגוריה"
+              variant="ghost"
+              size="sm"
+              onPress={() => onSelect(null)}
+              testID="hb-import-category-none"
+              style={{ flex: 1 }}
+            />
+            <Button
+              title="סגירה"
+              variant="secondary"
+              size="sm"
+              onPress={onClose}
+              testID="hb-import-category-close"
+              style={{ flex: 1 }}
+            />
+          </View>
+        </Pressable>
+      </Pressable>
     </Modal>
+  );
+}
+
+// ── input של הדפדפן ─────────────────────────────────────────────────────────
+/**
+ * ב-web אנחנו לא משתמשים ב-DocumentPicker: הוא יוצר `<input>` זמני, מפזר עליו
+ * אירוע לחיצה ומוחק אותו מיד — מה שהופך כל אוטומציה (וגם דיבוג) לשבירה.
+ * במקום זה יש כאן input אמיתי וקבוע ב-DOM, שהכפתור פשוט לוחץ עליו.
+ * ברכיבי נייטיב אין אלמנטים כאלה, ולכן הוא מרונדר רק כש-Platform.OS === 'web'.
+ */
+function WebFileInput({
+  inputRef,
+  onFile,
+}: {
+  inputRef: React.MutableRefObject<HTMLInputElement | null>;
+  onFile: (file: File) => void;
+}) {
+  return (
+    <input
+      ref={inputRef}
+      type="file"
+      id="hb-import-input"
+      data-testid="hb-import-input"
+      aria-label="בחירת קובץ דוח אשראי"
+      accept={WEB_ACCEPT}
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        // איפוס הערך כדי שבחירה חוזרת באותו קובץ תפעיל onChange שוב
+        event.target.value = '';
+        if (file) onFile(file);
+      }}
+      style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+    />
   );
 }

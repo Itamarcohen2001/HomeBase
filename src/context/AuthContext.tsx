@@ -1,10 +1,11 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { Platform } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { translateAuthError } from '../lib/authErrors';
+import { resetSharedMonth } from '../hooks/useMonthParam';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -33,6 +34,24 @@ const AuthContext = createContext<AuthValue | null>(null);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  /** `undefined` = הזהות עדיין לא נקבעה, `null` = אין משתמש מחובר */
+  const seenUserId = useRef<string | null | undefined>(undefined);
+
+  /**
+   * כל שינוי סשן עובר כאן, כדי שמצב שנשמר ברמת המודול ינוקה בהחלפת זהות.
+   * הקביעה הראשונה אינה "החלפה" — היא רק גילוי מי מחובר — ואסור לה לאפס,
+   * אחרת כניסה ישירה ל-`/history?month=2026-06-01` הייתה מאבדת את החודש
+   * ברגע שהסשן נטען.
+   */
+  const applySession = useCallback((next: Session | null) => {
+    const id = next?.user?.id ?? null;
+    if (seenUserId.current !== undefined && seenUserId.current !== id) {
+      resetSharedMonth();
+    }
+    seenUserId.current = id;
+    setSession(next);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
     if (!isSupabaseConfigured) {
@@ -43,20 +62,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getSession().then(({ data }) => {
       if (!mounted) return;
-      setSession(data.session);
-      setLoading(false);
+      applySession(data.session);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
-      setSession(next);
-      setLoading(false);
+      applySession(next);
     });
 
     return () => {
       mounted = false;
       sub.subscription.unsubscribe();
     };
-  }, []);
+  }, [applySession]);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -144,9 +161,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         throw new Error(translateAuthError(error));
       }
     } finally {
-      setSession(null);
+      applySession(null);
     }
-  }, []);
+  }, [applySession]);
 
   const value = useMemo<AuthValue>(
     () => ({

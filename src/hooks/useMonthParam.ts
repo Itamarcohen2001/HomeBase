@@ -21,8 +21,24 @@ function normalize(value: unknown): string | null {
  * מתוך `/history?month=2026-06-01` מגיעה ל-`/analysis` חשוף (נמדד). לכן הכתובת
  * לבדה אינה מספיקה, והחודש נשמר גם כאן. בלי זה משתמש שמייבא דוח של יוני,
  * נוחת ביוני ולוחץ "ניתוח" — מקבל את החודש הנוכחי וריק.
+ *
+ * זהו מצב **פר-משתמש**, ולכן `AuthContext` מאפס אותו בכל החלפת זהות. בלי
+ * האיפוס משתמש חדש שנכנס באותה לשונית היה נוחת בחודש של הקודם — חשבון ריק
+ * שנפתח על חודש שאין בו תנועות.
  */
 let lastMonth: string | null = null;
+
+/**
+ * עולה בכל איפוס. מסך שכבר מרונדר לא ירונדר מחדש כשהמודול מתאפס, ולכן הוא
+ * משווה את הדור שראה לאחרונה ומסנכרן את עצמו כשהוא חוזר למוקד.
+ */
+let generation = 0;
+
+/** מנקה את החודש המשותף. נקרא מ-`AuthContext` כשהמשתמש המחובר מתחלף. */
+export function resetSharedMonth(): void {
+  lastMonth = null;
+  generation += 1;
+}
 
 /**
  * החודש הנצפה במסך, כשהכתובת היא מקור האמת בתוך המסך (רענון על
@@ -36,6 +52,9 @@ export function useMonthParam(): [string, (next: string) => void] {
   const [month, setLocal] = useState(() => fromUrl ?? lastMonth ?? monthStart());
   const monthRef = useRef(month);
   monthRef.current = month;
+  const urlRef = useRef(fromUrl);
+  urlRef.current = fromUrl;
+  const genRef = useRef(generation);
 
   // הערך הראשוני נרשם פעם אחת, כדי שטאב שנטען ראשון יגדיר את החודש המשותף
   useEffect(() => {
@@ -53,9 +72,24 @@ export function useMonthParam(): [string, (next: string) => void] {
   // המסך חזר למוקד — מיישרים לחודש שנבחר לאחרונה, גם אם נבחר בטאב אחר
   useFocusEffect(
     useCallback(() => {
+      // המשתמש התחלף מאז הפעם הקודמת: מתחילים מחדש מהכתובת או מהחודש הנוכחי
+      if (genRef.current !== generation) {
+        genRef.current = generation;
+        const fresh = urlRef.current ?? monthStart();
+        lastMonth = fresh;
+        if (fresh !== monthRef.current) setLocal(fresh);
+        return;
+      }
+
       const next = lastMonth ?? monthStart();
       if (next !== monthRef.current) {
         setLocal(next);
+        router.setParams({ month: next });
+        return;
+      }
+      // הכתובת מציינת מה מוצג — אבל רק כשזה אינו החודש הנוכחי, כדי שכתובת
+      // נקייה תישאר נקייה ורענון עליה יחזיר את ברירת המחדל.
+      if (next !== monthStart() && urlRef.current !== next) {
         router.setParams({ month: next });
       }
     }, [router]),

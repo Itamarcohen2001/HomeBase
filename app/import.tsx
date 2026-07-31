@@ -90,6 +90,27 @@ function memberLabel(member: HouseholdMember, meId: string | undefined): string 
   return member.user_id === meId ? `${name} (אני)` : name;
 }
 
+/**
+ * תוויות ייחודיות לבני משק הבית, לפי `user_id`.
+ * שני חברים יכולים לקבל אותה תווית — אותו `full_name`, או נפילה משותפת
+ * ל"בן בית" כשחסר פרופיל. בבורר זה נראה כשתי אפשרויות זהות שאי אפשר לבחור
+ * ביניהן, ולכן מוסיפים סיומת מזהה — אבל רק למי שבאמת מתנגש.
+ */
+function memberLabels(
+  members: HouseholdMember[],
+  meId: string | undefined,
+): Map<string, string> {
+  const base = members.map((m) => memberLabel(m, meId));
+  const counts = new Map<string, number>();
+  for (const label of base) counts.set(label, (counts.get(label) ?? 0) + 1);
+  return new Map(
+    members.map((m, i) => [
+      m.user_id,
+      (counts.get(base[i]) ?? 0) > 1 ? `${base[i]} · ${m.user_id.slice(0, 4)}` : base[i],
+    ]),
+  );
+}
+
 export default function Import() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -127,10 +148,7 @@ export default function Import() {
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
 
   /** תוויות השיוך לפי `user_id`, לתג שבשורה ולבוררים */
-  const memberNameById = useMemo(
-    () => new Map(members.map((m) => [m.user_id, memberLabel(m, user?.id)])),
-    [members, user?.id],
-  );
+  const memberNameById = useMemo(() => memberLabels(members, user?.id), [members, user?.id]);
 
   /**
    * השיוך הגורף נגזר מהשורות ולא נשמר בנפרד, כדי שלא ייווצר מצב שבו הבורר
@@ -522,7 +540,7 @@ export default function Import() {
                   {members.map((m) => (
                     <AssignChip
                       key={m.user_id}
-                      label={memberLabel(m, user?.id)}
+                      label={memberNameById.get(m.user_id) ?? 'בן בית'}
                       icon="person"
                       active={globalAssignment === m.user_id}
                       onPress={() => assignAll(m.user_id)}
@@ -643,7 +661,7 @@ export default function Import() {
       <AssignmentPicker
         row={assignRow_}
         members={members}
-        meId={user?.id}
+        labels={memberNameById}
         onClose={() => setAssignRowId(null)}
         onSelect={(assignedTo) => assignRow_ && assignRow(assignRow_.id, assignedTo)}
       />
@@ -964,13 +982,14 @@ function AssignChip({
 function AssignmentPicker({
   row,
   members,
-  meId,
+  labels,
   onClose,
   onSelect,
 }: {
   row: DraftRow | null;
   members: HouseholdMember[];
-  meId: string | undefined;
+  /** תוויות ייחודיות לפי `user_id` — אותן תוויות כמו בבורר הגורף ובשורות */
+  labels: Map<string, string>;
   onClose: () => void;
   onSelect: (assignedTo: string | null) => void;
 }) {
@@ -1015,7 +1034,7 @@ function AssignmentPicker({
               {members.map((m) => (
                 <AssignChip
                   key={m.user_id}
-                  label={memberLabel(m, meId)}
+                  label={labels.get(m.user_id) ?? 'בן בית'}
                   icon="person"
                   active={row?.assignedTo === m.user_id}
                   onPress={() => onSelect(m.user_id)}

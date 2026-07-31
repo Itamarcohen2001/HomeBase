@@ -17,6 +17,8 @@ import { colors, font, layout, radius, rtlRow, rtlText, shadow, spacing } from '
 export { DialogProvider, useDialog } from './dialog';
 export { Donut } from './Donut';
 export { MonthNav } from './MonthNav';
+export { AssignChip, AssignmentChips, memberLabel, memberLabels } from './assign';
+export type { AssignableMember } from './assign';
 
 // ── Checkbox ────────────────────────────────────────────────────────────────
 /**

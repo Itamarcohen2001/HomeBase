@@ -226,6 +226,9 @@ export async function updateTransaction(
     note: string | null;
     kind: Kind;
     is_shared: boolean;
+    /** שיוך התנועה לבן משק בית. RLS מתיר זאת — הפוליסי בודק household_id בלבד
+     *  (0002_rls.sql:171), ואומת מול הפרודקשן. */
+    user_id: string | null;
   }>,
 ): Promise<void> {
   const payload = { ...patch };
@@ -255,6 +258,16 @@ export async function listTransactions(
 
   const rows = unwrap(await q) as unknown as Transaction[];
   return attachProfiles(rows);
+}
+
+/** תנועה בודדת לפי מזהה. מסך העריכה נפתח גם מחודש אחר (למשל אחרי ייבוא של
+ *  דוח אשראי מחודש קודם), ואז היא לא נמצאת בנתוני החודש הטעונים. */
+export async function getTransaction(id: string): Promise<Transaction | null> {
+  const rows = unwrap(
+    await supabase.from('transactions').select(TX_SELECT).eq('id', id).limit(1),
+  ) as unknown as Transaction[];
+  if (!rows.length) return null;
+  return (await attachProfiles(rows))[0] ?? null;
 }
 
 /** תנועות בטווח תאריכים — משמש את זיהוי הכפילויות בייבוא. */

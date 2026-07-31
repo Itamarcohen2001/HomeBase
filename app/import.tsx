@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -21,6 +21,7 @@ import {
 } from '../src/lib/import/draft';
 import type { Category, HouseholdMember } from '../src/lib/types';
 import {
+  AssignmentChips,
   Badge,
   Body,
   Button,
@@ -30,6 +31,7 @@ import {
   H3,
   IconBubble,
   InlineMessage,
+  memberLabels,
   Muted,
   PageHeader,
   useDialog,
@@ -85,31 +87,6 @@ function busiestMonth(dates: string[]): { month: string; inMonth: number; months
   return { month: best, inMonth: bestCount, months: counts.size };
 }
 
-function memberLabel(member: HouseholdMember, meId: string | undefined): string {
-  const name = member.profiles?.full_name ?? member.profiles?.email ?? 'בן בית';
-  return member.user_id === meId ? `${name} (אני)` : name;
-}
-
-/**
- * תוויות ייחודיות לבני משק הבית, לפי `user_id`.
- * שני חברים יכולים לקבל אותה תווית — אותו `full_name`, או נפילה משותפת
- * ל"בן בית" כשחסר פרופיל. בבורר זה נראה כשתי אפשרויות זהות שאי אפשר לבחור
- * ביניהן, ולכן מוסיפים סיומת מזהה — אבל רק למי שבאמת מתנגש.
- */
-function memberLabels(
-  members: HouseholdMember[],
-  meId: string | undefined,
-): Map<string, string> {
-  const base = members.map((m) => memberLabel(m, meId));
-  const counts = new Map<string, number>();
-  for (const label of base) counts.set(label, (counts.get(label) ?? 0) + 1);
-  return new Map(
-    members.map((m, i) => [
-      m.user_id,
-      (counts.get(base[i]) ?? 0) > 1 ? `${base[i]} · ${m.user_id.slice(0, 4)}` : base[i],
-    ]),
-  );
-}
 
 export default function Import() {
   const router = useRouter();
@@ -525,29 +502,15 @@ export default function Import() {
                     ? 'השיוך מעורב — יש שורות עם שיוך שונה. אפשר לבחור כאן שיוך לכל השורות.'
                     : 'מדוח אשראי אי אפשר לדעת מי ביצע כל עסקה, ולכן הכול משותף כברירת מחדל. אפשר לשייך גם שורה בודדת.'}
                 </Muted>
-                <View
-                  accessibilityRole="radiogroup"
+                <AssignmentChips
+                  value={globalAssignment}
+                  members={members}
+                  labels={memberNameById}
+                  onChange={assignAll}
                   accessibilityLabel="שיוך ההוצאות"
-                  style={{ ...rtlRow, flexWrap: 'wrap', gap: spacing.sm }}
-                >
-                  <AssignChip
-                    label="משותף"
-                    icon="people"
-                    active={globalAssignment === null}
-                    onPress={() => assignAll(null)}
-                    testID="hb-import-shared-all"
-                  />
-                  {members.map((m) => (
-                    <AssignChip
-                      key={m.user_id}
-                      label={memberNameById.get(m.user_id) ?? 'בן בית'}
-                      icon="person"
-                      active={globalAssignment === m.user_id}
-                      onPress={() => assignAll(m.user_id)}
-                      testID={`hb-import-assign-all-${m.user_id}`}
-                    />
-                  ))}
-                </View>
+                  sharedTestID="hb-import-shared-all"
+                  memberTestID={(userId) => `hb-import-assign-all-${userId}`}
+                />
               </Card>
             ) : null}
 
@@ -934,50 +897,6 @@ function CategoryPicker({
   );
 }
 
-// ── שבב שיוך ────────────────────────────────────────────────────────────────
-function AssignChip({
-  label,
-  icon,
-  active,
-  onPress,
-  testID,
-}: {
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  active: boolean;
-  onPress: () => void;
-  testID: string;
-}) {
-  return (
-    <Pressable
-      accessibilityRole="radio"
-      accessibilityLabel={label}
-      accessibilityState={{ checked: active }}
-      // react-native-web 0.21 לא ממפה accessibilityState ל-aria, ובלי זה אי אפשר
-      // לדעת — לא בקורא מסך ולא בבדיקה — איזו אפשרות נבחרה.
-      aria-checked={active}
-      testID={testID}
-      onPress={onPress}
-      style={({ pressed }) => [
-        {
-          ...rtlRow,
-          gap: spacing.xs + 2,
-          minHeight: 44,
-          paddingHorizontal: spacing.md,
-          borderRadius: radius.pill,
-          borderWidth: 1.5,
-          borderColor: active ? colors.primaryDark : colors.border,
-          backgroundColor: active ? `${colors.primaryDark}22` : colors.surface,
-        },
-        pressed && { opacity: 0.75 },
-      ]}
-    >
-      <Ionicons name={icon} size={15} color={active ? colors.primaryDark : colors.textMuted} />
-      <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{label}</Text>
-    </Pressable>
-  );
-}
-
 // ── בורר שיוך לשורה בודדת ───────────────────────────────────────────────────
 function AssignmentPicker({
   row,
@@ -1019,29 +938,15 @@ function AssignmentPicker({
           </Muted>
 
           <ScrollView contentContainerStyle={{ paddingBottom: spacing.sm }}>
-            <View
-              accessibilityRole="radiogroup"
+            <AssignmentChips
+              value={row?.assignedTo}
+              members={members}
+              labels={labels}
+              onChange={onSelect}
               accessibilityLabel="שיוך ההוצאה"
-              style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}
-            >
-              <AssignChip
-                label="משותף"
-                icon="people"
-                active={row?.assignedTo === null}
-                onPress={() => onSelect(null)}
-                testID="hb-import-assign-option-shared"
-              />
-              {members.map((m) => (
-                <AssignChip
-                  key={m.user_id}
-                  label={labels.get(m.user_id) ?? 'בן בית'}
-                  icon="person"
-                  active={row?.assignedTo === m.user_id}
-                  onPress={() => onSelect(m.user_id)}
-                  testID={`hb-import-assign-option-${m.user_id}`}
-                />
-              ))}
-            </View>
+              sharedTestID="hb-import-assign-option-shared"
+              memberTestID={(userId) => `hb-import-assign-option-${userId}`}
+            />
           </ScrollView>
 
           <Muted style={{ fontSize: 12, marginTop: spacing.md }}>

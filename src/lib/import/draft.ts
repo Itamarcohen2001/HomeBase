@@ -14,7 +14,12 @@ export type DraftRow = ParsedRow & {
   categorySource: 'rule' | 'dictionary' | 'user' | 'none';
   /** כבר קיימת תנועה זהה במסד */
   duplicate: boolean;
-  shared: boolean;
+  /**
+   * למי נזקפת ההוצאה. `null` = משותפת לכל משק הבית (ברירת המחדל בייבוא —
+   * מדוח אשראי אי אפשר לדעת מי מבני הבית ביצע את העסקה). אחרת `user_id`
+   * של בן משק הבית שהשורה נזקפת לו.
+   */
+  assignedTo: string | null;
 };
 
 /**
@@ -112,7 +117,7 @@ export function buildDraft(
       categoryId: id,
       categorySource: source,
       duplicate,
-      shared: false,
+      assignedTo: null,
     };
   });
 }

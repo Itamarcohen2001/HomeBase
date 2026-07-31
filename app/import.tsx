@@ -19,7 +19,7 @@ import {
   type DraftRow,
   type ImportRule,
 } from '../src/lib/import/draft';
-import type { Category } from '../src/lib/types';
+import type { Category, HouseholdMember } from '../src/lib/types';
 import {
   Badge,
   Body,
@@ -85,6 +85,11 @@ function busiestMonth(dates: string[]): { month: string; inMonth: number; months
   return { month: best, inMonth: bestCount, months: counts.size };
 }
 
+function memberLabel(member: HouseholdMember, meId: string | undefined): string {
+  const name = member.profiles?.full_name ?? member.profiles?.email ?? 'בן בית';
+  return member.user_id === meId ? `${name} (אני)` : name;
+}
+
 export default function Import() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -96,9 +101,10 @@ export default function Import() {
   const [result, setResult] = useState<ParseResult | null>(null);
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [sharedAvailable, setSharedAvailable] = useState(false);
-  const [sharedAll, setSharedAll] = useState(false);
   const [pickerRowId, setPickerRowId] = useState<string | null>(null);
+  const [assignRowId, setAssignRowId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   // גובה הפוטר הצף נמדד בפועל. בלי זה הפוטר מכסה את סוף התוכן ולחיצה על
@@ -119,6 +125,22 @@ export default function Import() {
   }, []);
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+
+  /** תוויות השיוך לפי `user_id`, לתג שבשורה ולבוררים */
+  const memberNameById = useMemo(
+    () => new Map(members.map((m) => [m.user_id, memberLabel(m, user?.id)])),
+    [members, user?.id],
+  );
+
+  /**
+   * השיוך הגורף נגזר מהשורות ולא נשמר בנפרד, כדי שלא ייווצר מצב שבו הבורר
+   * מציג "משותף" אחרי שהמשתמש שינה שורה בודדת. `undefined` = שיוך מעורב.
+   */
+  const globalAssignment = useMemo(() => {
+    if (!rows.length) return null;
+    const first = rows[0].assignedTo;
+    return rows.every((r) => r.assignedTo === first) ? first : undefined;
+  }, [rows]);
 
   const selected = useMemo(() => rows.filter((r) => r.selected && !r.isRefund), [rows]);
   const selectedTotal = useMemo(
@@ -145,19 +167,20 @@ export default function Import() {
       try {
         const parsed = await parseFile({ name, data });
         const dates = parsed.rows.map((r) => r.date).sort();
-        const [allCategories, existing, rules] = await Promise.all([
+        const [allCategories, existing, rules, householdMembers] = await Promise.all([
           db.listCategories(householdId),
           db.listTransactionsInRange(householdId, dates[0], dates[dates.length - 1]),
           db.listImportRules(householdId).catch(() => [] as ImportRule[]),
+          db.listMembers(householdId).catch(() => [] as HouseholdMember[]),
         ]);
         // דוחות אשראי הם הוצאות בלבד — הבורר מציג רק קטגוריות הוצאה
         const expenseCategories = allCategories.filter((c) => c.kind === IMPORT_KIND);
         knownRules.current = rules;
         setCategories(expenseCategories);
+        setMembers(householdMembers);
         setResult(parsed);
         setRows(buildDraft(parsed.rows, { categories: expenseCategories, existing, rules }));
         setFileName(name);
-        setSharedAll(false);
       } catch (e) {
         setResult(null);
         setRows([]);
@@ -218,18 +241,11 @@ export default function Import() {
       return;
     }
     setMessage(null);
-    setRows((rs) =>
-      rs.map((r) => (r.id === row.id ? { ...r, selected: next, shared: next && sharedAll } : r)),
-    );
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, selected: next } : r)));
   }
 
   function setAllSelected(next: boolean) {
-    setRows((rs) =>
-      rs.map((r) => {
-        const isSelected = next ? !r.isRefund : false;
-        return { ...r, selected: isSelected, shared: isSelected && sharedAll };
-      }),
-    );
+    setRows((rs) => rs.map((r) => ({ ...r, selected: next ? !r.isRefund : false })));
     setMessage(
       next && rows.some((r) => r.isRefund)
         ? { tone: 'info', text: 'שורות זיכוי לא נכללו בסימון — לא ניתן לייבא החזר כהוצאה.' }
@@ -237,9 +253,14 @@ export default function Import() {
     );
   }
 
-  function toggleSharedAll(next: boolean) {
-    setSharedAll(next);
-    setRows((rs) => rs.map((r) => ({ ...r, shared: next && r.selected && !r.isRefund })));
+  /** שיוך גורף לכל השורות — משותף או בן משק בית מסוים */
+  function assignAll(assignedTo: string | null) {
+    setRows((rs) => rs.map((r) => ({ ...r, assignedTo })));
+  }
+
+  function assignRow(rowId: string, assignedTo: string | null) {
+    setAssignRowId(null);
+    setRows((rs) => rs.map((r) => (r.id === rowId ? { ...r, assignedTo } : r)));
   }
 
   function chooseCategory(rowId: string, categoryId: string | null) {
@@ -258,7 +279,9 @@ export default function Import() {
     setResult(null);
     setRows([]);
     setFileName(null);
-    setSharedAll(false);
+    setMembers([]);
+    setPickerRowId(null);
+    setAssignRowId(null);
     setMessage(null);
   }
 
@@ -293,13 +316,15 @@ export default function Import() {
       const count = await db.addTransactionsBulk(
         toWrite.map((r) => ({
           householdId,
-          userId: user.id,
           categoryId: r.categoryId,
           kind: IMPORT_KIND,
           amountAgorot: toAgorot(r.amount),
           occurredOn: r.date,
           note: noteFor(r),
-          isShared: sharedAvailable && r.shared,
+          // משותף: user_id נשאר של המייבא ו-is_shared מסמן שההוצאה לא נזקפת
+          // לאף אחד. שיוך לבן בית: הוא נזקף אליו ולכן אינה משותפת.
+          userId: r.assignedTo ?? user.id,
+          isShared: sharedAvailable && r.assignedTo === null,
         })),
       );
 
@@ -341,6 +366,7 @@ export default function Import() {
   // ── תצוגה ─────────────────────────────────────────────────────────────────
 
   const pickerRow = pickerRowId ? rows.find((r) => r.id === pickerRowId) ?? null : null;
+  const assignRow_ = assignRowId ? rows.find((r) => r.id === assignRowId) ?? null : null;
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }} edges={['top', 'left', 'right']}>
@@ -472,18 +498,39 @@ export default function Import() {
               </InlineMessage>
             ) : null}
 
-            {/* הצ'קבוקס הגורף יושב כאן, מעל הרשימה — לא כאלמנט האחרון בגלילה */}
+            {/* בורר השיוך הגורף יושב כאן, מעל הרשימה — לא כאלמנט האחרון בגלילה */}
             {sharedAvailable ? (
-              <Checkbox
-                testID="hb-import-shared-all"
-                value={sharedAll}
-                onValueChange={toggleSharedAll}
-                icon="people"
-                label="סימון הכול כהוצאה משותפת"
-                hint="ההוצאות המסומנות לא ייזקפו לאף אחד בפיצול בין בני הבית"
-                accessibilityLabel="הוצאה משותפת"
-                style={{ marginBottom: spacing.md }}
-              />
+              <Card style={{ marginBottom: spacing.md }}>
+                <Body style={{ fontWeight: '700', marginBottom: spacing.xs }}>שיוך ההוצאות</Body>
+                <Muted style={{ fontSize: 12, marginBottom: spacing.md }}>
+                  {globalAssignment === undefined
+                    ? 'השיוך מעורב — יש שורות עם שיוך שונה. אפשר לבחור כאן שיוך לכל השורות.'
+                    : 'מדוח אשראי אי אפשר לדעת מי ביצע כל עסקה, ולכן הכול משותף כברירת מחדל. אפשר לשייך גם שורה בודדת.'}
+                </Muted>
+                <View
+                  accessibilityRole="radiogroup"
+                  accessibilityLabel="שיוך ההוצאות"
+                  style={{ ...rtlRow, flexWrap: 'wrap', gap: spacing.sm }}
+                >
+                  <AssignChip
+                    label="משותף"
+                    icon="people"
+                    active={globalAssignment === null}
+                    onPress={() => assignAll(null)}
+                    testID="hb-import-shared-all"
+                  />
+                  {members.map((m) => (
+                    <AssignChip
+                      key={m.user_id}
+                      label={memberLabel(m, user?.id)}
+                      icon="person"
+                      active={globalAssignment === m.user_id}
+                      onPress={() => assignAll(m.user_id)}
+                      testID={`hb-import-assign-all-${m.user_id}`}
+                    />
+                  ))}
+                </View>
+              </Card>
             ) : null}
 
             <View
@@ -521,8 +568,16 @@ export default function Import() {
                   index={i}
                   first={i === 0}
                   category={row.categoryId ? categoryById.get(row.categoryId) ?? null : null}
+                  assignment={
+                    sharedAvailable
+                      ? row.assignedTo === null
+                        ? 'משותף'
+                        : memberNameById.get(row.assignedTo) ?? 'בן בית'
+                      : null
+                  }
                   onToggle={(next) => toggleRow(row, next)}
                   onPickCategory={() => setPickerRowId(row.id)}
+                  onPickAssignment={() => setAssignRowId(row.id)}
                 />
               ))}
             </Card>
@@ -584,6 +639,14 @@ export default function Import() {
         onClose={() => setPickerRowId(null)}
         onSelect={(categoryId) => pickerRow && chooseCategory(pickerRow.id, categoryId)}
       />
+
+      <AssignmentPicker
+        row={assignRow_}
+        members={members}
+        meId={user?.id}
+        onClose={() => setAssignRowId(null)}
+        onSelect={(assignedTo) => assignRow_ && assignRow(assignRow_.id, assignedTo)}
+      />
     </SafeAreaView>
   );
 }
@@ -606,15 +669,20 @@ function ImportRowItem({
   index,
   first,
   category,
+  assignment,
   onToggle,
   onPickCategory,
+  onPickAssignment,
 }: {
   row: DraftRow;
   index: number;
   first: boolean;
   category: Category | null;
+  /** תווית השיוך, או `null` כשהמסד לא תומך בהוצאות משותפות */
+  assignment: string | null;
   onToggle: (next: boolean) => void;
   onPickCategory: () => void;
+  onPickAssignment: () => void;
 }) {
   // ההסבר בעברית למה השורה לא מסומנת מראש — אחרת המשתמש רק רואה תיבה ריקה
   const reasons: string[] = [];
@@ -699,6 +767,37 @@ function ImportRowItem({
           <Ionicons name="chevron-down" size={13} color={colors.textFaint} />
         </Pressable>
 
+        {assignment ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`שיוך עבור ${row.description}`}
+            testID={`hb-import-assign-${index}`}
+            onPress={onPickAssignment}
+            style={({ pressed }) => [
+              {
+                ...rtlRow,
+                gap: spacing.xs + 2,
+                minHeight: 34,
+                paddingHorizontal: spacing.md,
+                paddingVertical: spacing.xs,
+                borderRadius: radius.pill,
+                borderWidth: 1.5,
+                borderColor: colors.primaryDark,
+                backgroundColor: `${colors.primaryDark}1F`,
+              },
+              pressed && { opacity: 0.75 },
+            ]}
+          >
+            <Ionicons
+              name={row.assignedTo === null ? 'people' : 'person'}
+              size={14}
+              color={colors.primaryDark}
+            />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{assignment}</Text>
+            <Ionicons name="chevron-down" size={13} color={colors.textFaint} />
+          </Pressable>
+        ) : null}
+
         {row.duplicate ? (
           <Badge icon="copy" color={colors.warning}>
             כפילות
@@ -712,11 +811,6 @@ function ImportRowItem({
         {row.isCardCharge ? (
           <Badge icon="card" color={colors.textMuted}>
             חיוב כרטיס
-          </Badge>
-        ) : null}
-        {row.shared ? (
-          <Badge icon="people" color={colors.primaryDark}>
-            משותף
           </Badge>
         ) : null}
       </View>
@@ -816,6 +910,133 @@ function CategoryPicker({
               style={{ flex: 1 }}
             />
           </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+// ── שבב שיוך ────────────────────────────────────────────────────────────────
+function AssignChip({
+  label,
+  icon,
+  active,
+  onPress,
+  testID,
+}: {
+  label: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  active: boolean;
+  onPress: () => void;
+  testID: string;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityLabel={label}
+      accessibilityState={{ checked: active }}
+      // react-native-web 0.21 לא ממפה accessibilityState ל-aria, ובלי זה אי אפשר
+      // לדעת — לא בקורא מסך ולא בבדיקה — איזו אפשרות נבחרה.
+      aria-checked={active}
+      testID={testID}
+      onPress={onPress}
+      style={({ pressed }) => [
+        {
+          ...rtlRow,
+          gap: spacing.xs + 2,
+          minHeight: 44,
+          paddingHorizontal: spacing.md,
+          borderRadius: radius.pill,
+          borderWidth: 1.5,
+          borderColor: active ? colors.primaryDark : colors.border,
+          backgroundColor: active ? `${colors.primaryDark}22` : colors.surface,
+        },
+        pressed && { opacity: 0.75 },
+      ]}
+    >
+      <Ionicons name={icon} size={15} color={active ? colors.primaryDark : colors.textMuted} />
+      <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{label}</Text>
+    </Pressable>
+  );
+}
+
+// ── בורר שיוך לשורה בודדת ───────────────────────────────────────────────────
+function AssignmentPicker({
+  row,
+  members,
+  meId,
+  onClose,
+  onSelect,
+}: {
+  row: DraftRow | null;
+  members: HouseholdMember[];
+  meId: string | undefined;
+  onClose: () => void;
+  onSelect: (assignedTo: string | null) => void;
+}) {
+  return (
+    <Modal visible={row !== null} transparent animationType="fade" onRequestClose={onClose}>
+      <Pressable
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: 'rgba(10, 26, 20, 0.45)',
+          justifyContent: 'center',
+          padding: spacing.lg,
+        }}
+      >
+        <Pressable
+          onPress={() => undefined}
+          style={{
+            backgroundColor: colors.surface,
+            borderRadius: radius.lg,
+            padding: spacing.lg,
+            maxHeight: '80%',
+          }}
+        >
+          <H3 style={{ marginBottom: spacing.xs }}>שיוך ההוצאה</H3>
+          <Muted style={{ marginBottom: spacing.md }} numberOfLines={1}>
+            {row?.description ?? ''}
+          </Muted>
+
+          <ScrollView contentContainerStyle={{ paddingBottom: spacing.sm }}>
+            <View
+              accessibilityRole="radiogroup"
+              accessibilityLabel="שיוך ההוצאה"
+              style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}
+            >
+              <AssignChip
+                label="משותף"
+                icon="people"
+                active={row?.assignedTo === null}
+                onPress={() => onSelect(null)}
+                testID="hb-import-assign-option-shared"
+              />
+              {members.map((m) => (
+                <AssignChip
+                  key={m.user_id}
+                  label={memberLabel(m, meId)}
+                  icon="person"
+                  active={row?.assignedTo === m.user_id}
+                  onPress={() => onSelect(m.user_id)}
+                  testID={`hb-import-assign-option-${m.user_id}`}
+                />
+              ))}
+            </View>
+          </ScrollView>
+
+          <Muted style={{ fontSize: 12, marginTop: spacing.md }}>
+            הוצאה משותפת לא נזקפת לאף אחד בפיצול בין בני הבית.
+          </Muted>
+
+          <Button
+            title="סגירה"
+            variant="secondary"
+            size="sm"
+            onPress={onClose}
+            testID="hb-import-assign-close"
+            style={{ marginTop: spacing.md }}
+          />
         </Pressable>
       </Pressable>
     </Modal>

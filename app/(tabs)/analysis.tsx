@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useMonthData } from '../../src/hooks/useMonthData';
-import { formatMoney, monthStart } from '../../src/lib/format';
+import { useMonthParam } from '../../src/hooks/useMonthParam';
+import { formatMoney } from '../../src/lib/format';
 import { splitByCategory, splitByPerson, totalOf } from '../../src/lib/analysis';
 import type { AnalysisSlice } from '../../src/lib/types';
 import {
@@ -110,7 +111,8 @@ function ChartCard({
 }
 
 export default function Analysis() {
-  const [month, setMonth] = useState(monthStart());
+  // אותו חודש כמו במסך התנועות: הכתובת גוברת, והחודש המשותף מיישר בין הטאבים
+  const [month, setMonth] = useMonthParam();
   const { transactions, summary, loading, reload } = useMonthData(month);
 
   const byCategory = useMemo(() => splitByCategory(transactions), [transactions]);

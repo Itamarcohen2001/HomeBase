@@ -1,31 +1,21 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useMonthData } from '../../src/hooks/useMonthData';
-import { formatDate, formatMoney, monthStart } from '../../src/lib/format';
+import { useMonthParam } from '../../src/hooks/useMonthParam';
+import { formatDate, formatMoney } from '../../src/lib/format';
 import type { Kind } from '../../src/lib/types';
 import { Badge, Body, Card, EmptyState, H2, IconBubble, Muted, MonthNav, Screen } from '../../src/ui';
 import { colors, radius, rtlRow, spacing } from '../../src/theme';
 
 type Filter = 'all' | Kind;
 
-const MONTH_PARAM = /^\d{4}-\d{2}-\d{2}$/;
-
 export default function History() {
   const router = useRouter();
-  // החודש נשמר בכתובת ולא ב-state, כדי שמסכים אחרים (למשל הייבוא) יוכלו
-  // לפתוח את המסך ישירות על החודש שאליו שייכות התנועות שהם יצרו.
-  // מנרמלים ליום הראשון בחודש: כתובת שהוקלדה ידנית עם יום אחר תקינה מבחינת
-  // התצוגה, אבל התקציבים נשמרים לפי ה-1 בחודש ובלעדיה הם פשוט לא היו נטענים.
-  const params = useLocalSearchParams<{ month?: string }>();
-  const month =
-    typeof params.month === 'string' && MONTH_PARAM.test(params.month)
-      ? `${params.month.slice(0, 7)}-01`
-      : monthStart();
-  const setMonth = useCallback(
-    (next: string) => router.setParams({ month: next }),
-    [router],
-  );
+  // החודש נשמר בכתובת ומשותף לטאבים, כדי שמסכים אחרים (למשל הייבוא) יוכלו
+  // לפתוח את המסך ישירות על החודש שאליו שייכות התנועות שהם יצרו — ושמעבר
+  // לטאב "ניתוח" לא יחזיר את המשתמש לחודש הנוכחי.
+  const [month, setMonth] = useMonthParam();
   const [filter, setFilter] = useState<Filter>('all');
   const { transactions, summary, loading, reload } = useMonthData(month);
 

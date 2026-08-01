@@ -89,7 +89,7 @@ function matchCategory(
     .sort((a, b) => b.pattern.length - a.pattern.length)[0];
   if (hit) return { id: hit.category_id, source: 'rule' };
 
-  const name = guessCategoryName(description);
+  const name = guessCategoryName(description, kind);
   if (name) {
     const match = categories.find((c) => c.kind === kind && normKey(c.name) === normKey(name));
     if (match) return { id: match.id, source: 'dictionary' };

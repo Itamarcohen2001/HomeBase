@@ -1,4 +1,5 @@
 import { normKey } from './shared';
+import type { Kind } from '../types';
 
 /**
  * מילון עסקים מובנה. הערכים הם **שמות הקטגוריות** שנזרעות לכל משק בית חדש
@@ -53,14 +54,47 @@ export const CATEGORY_BY_MERCHANT: Record<string, string[]> = {
 };
 
 /**
- * העברות בין אנשים — לא הוצאות צריכה, ואי אפשר לנחש להן קטגוריה.
- * במסך האישור הן מוצגות בלי קטגוריה כדי שהמשתמש יבחר בעצמו.
+ * אפליקציות תשלום בין אנשים. הכסף עובר דרכן לכל מטרה, ולכן הן מקבלות קטגוריה
+ * ייעודית ולא ניחוש לפי בית עסק.
+ *
+ * ⚠️ **אסור להשתמש ב-`\b` על עברית.** `\w` ב-JavaScript הוא ASCII בלבד (בלי דגל
+ * `u`), ולכן `/\bביט\b/` לא מזהה `מביט` ולא `בביט` — כלומר שובר בשקט את
+ * `זיכוי מביט`. התבנית כאן מתירה תחילית עברית (מ/ב/ל/ה/ו/ש/כ) ודורשת סוף מילה,
+ * וכך `ביטוח לאומי` ו-`ביטול עסקה` נדחים כראוי. התבנית רצה על פלט `normKey`,
+ * שכבר המיר מקפים לרווחים והוריד פיסוק.
  */
-const TRANSFER_PATTERNS = ['bit', 'ביט', 'paybox', 'פייבוקס', 'העברה'];
+const MONEY_APP_PATTERNS = [
+  /(^|[\s\u0590-\u05FF])ביט(?=$|\s)/,
+  /(^|[\s\u0590-\u05FF])פייבוקס(?=$|\s)/,
+  /\b(bit|paybox)\b/i,
+];
 
-export function isPersonalTransfer(description: string): boolean {
+/** העברה גנרית — הבנק לא מוסר למי שולם, ולכן אי אפשר לנחש ואי אפשר ללמוד. */
+const GENERIC_TRANSFER_PATTERNS = ['העברה'];
+
+/** הקטגוריה שכל ההעברות היוצאות דרך אפליקציות תשלום נכנסות אליה. */
+export const MONEY_TRANSFER_CATEGORY = 'העברות כספים';
+
+/** היעד לצד הנכנס — נזרע לכל משק בית מאז 0003. */
+export const OTHER_INCOME_CATEGORY = 'הכנסה אחרת';
+
+export function isMoneyAppTransfer(description: string): boolean {
   const key = normKey(description);
-  return TRANSFER_PATTERNS.some((p) => key.includes(p));
+  return MONEY_APP_PATTERNS.some((re) => re.test(key));
+}
+
+export function isGenericTransfer(description: string): boolean {
+  const key = normKey(description);
+  return GENERIC_TRANSFER_PATTERNS.some((p) => key.includes(p));
+}
+
+/**
+ * שורות שלא לומדים מהן כלל. ⚠️ `העברה מהחשבון` מופיעה בקובץ הבנק ארבע פעמים
+ * עם תיאור, סוג פעולה ואסמכתא זהים לחלוטין — ובכל זאת אלה ארבעה תשלומים שונים.
+ * כלל נלמד על התבנית הזאת היה דוחף את כולם לקטגוריה אחת.
+ */
+export function isPersonalTransfer(description: string): boolean {
+  return isMoneyAppTransfer(description) || isGenericTransfer(description);
 }
 
 let index: [string, string][] | null = null;
@@ -74,9 +108,21 @@ function buildIndex(): [string, string][] {
   return pairs.sort((a, b) => b[0].length - a[0].length);
 }
 
-/** שם הקטגוריה המשוערת מהמילון המובנה, או null אם לא זוהתה. */
-export function guessCategoryName(description: string): string | null {
-  if (isPersonalTransfer(description)) return null;
+/**
+ * שם הקטגוריה המשוערת, או null אם לא זוהתה.
+ *
+ * ⚠️ בדיקת אפליקציות התשלום חייבת להיות **לפני** לולאת המילון ולא ערך בתוכה:
+ * המילון ממוין לפי אורך, ולכן `פיצה` (4) היה מנצח את `ביט` (3) ו-
+ * `זיכוי מביט מפיצה ערב סוף` היה נופל על «מסעדות וקפה».
+ *
+ * ⚠️ והיא חייבת להיות תלוית-כיוון: «העברות כספים» היא קטגוריית הוצאה, ולכן
+ * החזרתה לשורת `זכות` הייתה מצמידה קטגוריית הוצאה לשורת הכנסה.
+ */
+export function guessCategoryName(description: string, kind: Kind): string | null {
+  if (isMoneyAppTransfer(description)) {
+    return kind === 'income' ? OTHER_INCOME_CATEGORY : MONEY_TRANSFER_CATEGORY;
+  }
+  if (isGenericTransfer(description)) return null;
   const key = normKey(description);
   if (!key) return null;
   index ??= buildIndex();

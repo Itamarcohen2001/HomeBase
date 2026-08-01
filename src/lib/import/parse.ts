@@ -1,4 +1,5 @@
 import { ImportError, type Matrix, type ParseResult, findRow, norm } from './shared';
+import { parseBank } from './bank';
 import { parseCal } from './cal';
 import { parsePoalim } from './poalim';
 import { parseGeneric } from './generic';
@@ -23,6 +24,16 @@ async function readWorkbook(data: ArrayBuffer | Uint8Array): Promise<{ name: str
     }) as Matrix;
     return { name, rows };
   });
+}
+
+/**
+ * ⚠️ דוח העו"ש ודוח האשראי יוצאים שניהם מאתר הבנק בשם `FibiSave*.xls` ושניהם
+ * מכילים גיליון בשם `Activities`. מתוך ארבעה קבצים כאלה שנמדדו, שלושה הם דוחות
+ * אשראי ורק אחד הוא עו"ש. לכן הזיהוי הוא לפי חתימת הכותרות בלבד: `זכות`
+ * ו-`חובה` מופיעות רק בדוח עו"ש, ודוח אשראי מציג `סכום חיוב`.
+ */
+function isBankSheet(sheet: { name: string; rows: Matrix }): boolean {
+  return findRow(sheet.rows, (cells) => cells.includes('זכות') && cells.includes('חובה')) >= 0;
 }
 
 function isCalSheet(sheet: { name: string; rows: Matrix }): boolean {
@@ -54,6 +65,10 @@ export async function parseFile(file: ImportFile): Promise<ParseResult> {
   const poalim = withRows.find(isPoalimSheet);
   if (poalim) return parsePoalim(poalim.rows);
 
+  // לפני כ.א.ל: שניהם משתמשים בגיליון בשם Activities
+  const bank = withRows.find(isBankSheet);
+  if (bank) return parseBank(bank.rows);
+
   const cal = withRows.find(isCalSheet);
   if (cal) return parseCal(cal.rows);
 
@@ -63,6 +78,7 @@ export async function parseFile(file: ImportFile): Promise<ParseResult> {
 }
 
 export * from './shared';
+export { parseBank } from './bank';
 export { parseCal } from './cal';
 export { parsePoalim } from './poalim';
 export { parseGeneric } from './generic';

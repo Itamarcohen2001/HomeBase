@@ -10,7 +10,7 @@ import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
 import { formatDate, formatILS, monthEnd, monthLabel, monthStart } from '../src/lib/format';
 import { parseFile } from '../src/lib/import/parse';
-import { type ParseResult } from '../src/lib/import/shared';
+import { rowKind, type ParseResult } from '../src/lib/import/shared';
 import {
   buildDraft,
   noteFor,
@@ -143,6 +143,31 @@ export default function Import() {
     [selected],
   );
 
+  /**
+   * דוח עו"ש מכיל הכנסות והוצאות יחד, ולכן סכום אחד היה מחבר משכורת עם קניות.
+   * בקבצים חד-כיווניים (דוחות אשראי) `income` הוא אפס והתצוגה נשארת כשהייתה.
+   */
+  const selectedByKind = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const r of selected) {
+      if (r.kind === 'income') income += toAgorot(r.amount);
+      else expense += toAgorot(r.amount);
+    }
+    return { income: income / 100, expense: expense / 100 };
+  }, [selected]);
+
+  const parsedByKind = useMemo(() => {
+    let income = 0;
+    let expense = 0;
+    for (const r of result?.rows ?? []) {
+      const agorot = toAgorot(r.amount) * (r.isRefund ? -1 : 1);
+      if (rowKind(r) === 'income') income += agorot;
+      else expense += agorot;
+    }
+    return { income: income / 100, expense: expense / 100 };
+  }, [result]);
+
   const totalsMismatch =
     result?.statedTotal != null && Math.abs(result.statedTotal - result.parsedTotal) > TOTAL_EPSILON;
 
@@ -244,10 +269,17 @@ export default function Import() {
   }
 
   function setAllSelected(next: boolean) {
-    setRows((rs) => rs.map((r) => ({ ...r, selected: next ? !r.isRefund : false })));
+    // חיוב מרוכז של כרטיס אשראי מוחרג גם מהסימון הגורף: הסכום שלו מפורט
+    // בדוח האשראי עצמו, ולחיצה אחת הייתה סופרת אותו פעמיים בשקט. הוא נשאר
+    // גלוי וניתן לסימון ידני.
+    setRows((rs) => rs.map((r) => ({ ...r, selected: next ? !r.isRefund && !r.isCardCharge : false })));
+    const skipped: string[] = [];
+    if (next && rows.some((r) => r.isRefund)) skipped.push('שורות זיכוי — לא ניתן לייבא החזר כהוצאה');
+    if (next && rows.some((r) => r.isCardCharge))
+      skipped.push('שורות חיוב מרוכז של כרטיס אשראי — הסכום שלהן מפורט בדוח האשראי');
     setMessage(
-      next && rows.some((r) => r.isRefund)
-        ? { tone: 'info', text: 'שורות זיכוי לא נכללו בסימון — לא ניתן לייבא החזר כהוצאה.' }
+      skipped.length
+        ? { tone: 'info', text: `לא נכללו בסימון: ${skipped.join(' · ')}. אפשר לסמן אותן ידנית.` }
         : null,
     );
   }
@@ -441,9 +473,19 @@ export default function Import() {
                 value={`${result.rows.length}`}
                 testID="hb-import-count"
               />
+              {parsedByKind.income > 0 ? (
+                <SummaryLine
+                  label="הכנסות בקובץ"
+                  value={formatILS(parsedByKind.income, { decimals: true })}
+                  testID="hb-import-total-income"
+                />
+              ) : null}
               <SummaryLine
-                label="סכום שנקרא"
-                value={formatILS(result.parsedTotal, { decimals: true })}
+                label={parsedByKind.income > 0 ? 'הוצאות בקובץ' : 'סכום שנקרא'}
+                value={formatILS(
+                  parsedByKind.income > 0 ? parsedByKind.expense : result.parsedTotal,
+                  { decimals: true },
+                )}
                 testID="hb-import-total"
               />
               {result.statedTotal != null ? (
@@ -596,7 +638,9 @@ export default function Import() {
           >
             <Muted testID="hb-import-selected-count">{`${selected.length} מתוך ${rows.length} מסומנות`}</Muted>
             <Body testID="hb-import-selected-total" style={{ fontWeight: '800' }}>
-              {formatILS(selectedTotal, { decimals: true })}
+              {selectedByKind.income > 0
+                ? `${formatILS(selectedByKind.expense, { decimals: true })} הוצאות · ${formatILS(selectedByKind.income, { decimals: true })} הכנסות`
+                : formatILS(selectedTotal, { decimals: true })}
             </Body>
           </View>
           <Button
@@ -705,9 +749,20 @@ function ImportRowItem({
         </View>
         <Text
           testID={`hb-import-amount-${index}`}
-          style={[font.body, rtlText, { fontWeight: '800', color: row.isRefund ? colors.primary : colors.text }]}
+          style={[
+            font.body,
+            rtlText,
+            {
+              fontWeight: '800',
+              color: row.isRefund
+                ? colors.primary
+                : row.kind === 'income'
+                  ? colors.income
+                  : colors.text,
+            },
+          ]}
         >
-          {row.isRefund ? '−' : ''}
+          {row.isRefund ? '−' : row.kind === 'income' ? '+' : ''}
           {formatILS(row.amount, { decimals: true })}
         </Text>
       </View>
@@ -783,6 +838,13 @@ function ImportRowItem({
           </Pressable>
         ) : null}
 
+        {row.kind === 'income' ? (
+          <View testID={`hb-import-income-${index}`}>
+            <Badge icon="arrow-down" color={colors.income}>
+              הכנסה
+            </Badge>
+          </View>
+        ) : null}
         {row.duplicate ? (
           <Badge icon="copy" color={colors.warning}>
             כפילות

@@ -18,6 +18,7 @@ type Row = {
 
 const ROWS: Row[] = [
   { icon: 'flag', color: '#2E9E6B', title: 'יעדים', subtitle: 'יעד חודשי לכל קטגוריה', href: '/budgets' },
+  { icon: 'wallet', color: '#2F8F5B', title: 'שווי נטו', subtitle: 'בנק, השקעות ומזומן במקום אחד', href: '/net-worth' },
   { icon: 'pricetags', color: '#4F7FE4', title: 'קטגוריות', subtitle: 'הוספה, עריכה ומחיקה', href: '/categories' },
   { icon: 'repeat', color: '#E4894F', title: 'הוצאות קבועות', subtitle: 'שכירות, ארנונה, מנויים', href: '/recurring' },
   { icon: 'cloud-upload', color: '#4F8FE4', title: 'ייבוא מהבנק', subtitle: 'קובץ דוח אשראי מהבנק', href: '/import' },

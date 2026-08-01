@@ -8,7 +8,7 @@ import { goBack } from '../src/lib/nav';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
-import { formatDate, formatILS, monthLabel, monthStart } from '../src/lib/format';
+import { formatDate, formatILS, monthEnd, monthLabel, monthStart } from '../src/lib/format';
 import { parseFile } from '../src/lib/import/parse';
 import { type ParseResult } from '../src/lib/import/shared';
 import {
@@ -162,9 +162,13 @@ export default function Import() {
       try {
         const parsed = await parseFile({ name, data });
         const dates = parsed.rows.map((r) => r.date).sort();
+        // קוראים חודשים שלמים ולא את טווח השורות עצמו: כלל חוזר מתממש ביום
+        // קבוע בחודש, וקובץ שמתחיל ב-6 בפברואר היה מחמיץ תנועה מה-1 בו.
+        const from = dates.length ? `${dates[0].slice(0, 8)}01` : monthStart();
+        const to = dates.length ? monthEnd(dates[dates.length - 1]) : monthEnd(monthStart());
         const [allCategories, existing, rules, householdMembers] = await Promise.all([
           db.listCategories(householdId),
-          db.listTransactionsInRange(householdId, dates[0], dates[dates.length - 1]),
+          db.listTransactionsInRange(householdId, from, to),
           db.listImportRules(householdId).catch(() => [] as ImportRule[]),
           db.listMembers(householdId).catch(() => [] as HouseholdMember[]),
         ]);
@@ -794,7 +798,21 @@ function ImportRowItem({
             חיוב כרטיס
           </Badge>
         ) : null}
+        {row.recurringOverlap ? (
+          <View testID={`hb-import-recurring-${index}`}>
+            <Badge icon="repeat" color={colors.warning}>
+              אולי הוצאה קבועה
+            </Badge>
+          </View>
+        ) : null}
       </View>
+
+      {row.recurringOverlap ? (
+        <Muted style={{ fontSize: 12, marginTop: spacing.xs, paddingRight: 34 }}>
+          ייתכן שכבר רשומה אצלך הוצאה קבועה באותו חודש ובאותו סכום. השורה מסומנת בכל זאת — אם היא כפולה, אפשר
+          להסיר את הסימון.
+        </Muted>
+      ) : null}
 
       {reasons.length ? (
         <Muted style={{ fontSize: 12, marginTop: spacing.xs, paddingRight: 34 }}>

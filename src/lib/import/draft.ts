@@ -17,6 +17,12 @@ export type DraftRow = ParsedRow & {
   /** כבר קיימת תנועה זהה במסד */
   duplicate: boolean;
   /**
+   * ייתכן שהשורה כבר נרשמה על ידי כלל חוזר. ⚠️ תגית בלבד — השורה נשארת
+   * מסומנת. `apply_recurring` כותב את **כותרת הכלל** כהערה ואת יום החיוב
+   * כתאריך, ולכן חתימת הכפילות המדויקת לעולם לא תתפוס חפיפה כזאת.
+   */
+  recurringOverlap: boolean;
+  /**
    * למי נזקפת ההוצאה. `null` = משותפת לכל משק הבית (ברירת המחדל בייבוא —
    * מדוח אשראי אי אפשר לדעת מי מבני הבית ביצע את העסקה). אחרת `user_id`
    * של בן משק הבית שהשורה נזקפת לו.
@@ -70,6 +76,24 @@ function existingCounts(existing: Transaction[]): Map<string, number> {
 }
 
 /**
+ * חודש + סכום של תנועות שנוצרו מכלל חוזר.
+ *
+ * ההיוריסטיקה רחבה בכוונה — בלי התאמת תיאור, בלי חלון תאריכים ובלי ניקוד
+ * דמיון. המשתמש ביקש במפורש להעדיף תיוג-יתר על פני החמצה, ומכיוון שהתגית
+ * לעולם לא מבטלת סימון, המחיר של חיובי-שגוי הוא מבט אחד. בקובץ האמיתי יש
+ * `העברת שכר דירה 4,600` ו-`העברה מהחשבון 4,600` **באותו יום** — אין שום
+ * אות שתפריד ביניהן, ולכן גם לא מנסים.
+ */
+function recurringKeys(existing: Transaction[]): Set<string> {
+  const keys = new Set<string>();
+  for (const tx of existing) {
+    if (!tx.recurring_rule_id) continue;
+    keys.add(`${tx.occurred_on.slice(0, 7)}|${tx.amount_agorot}`);
+  }
+  return keys;
+}
+
+/**
  * התאמת קטגוריה: קודם כלל שהמשתמש לימד, אחר כך המילון המובנה.
  * ⚠️ הכיוון מגיע מהשורה. קטגוריה מהכיוון ההפוך לעולם לא מותאמת — גם לא דרך
  * כלל נלמד, אחרת שורת `זכות` שמכילה תבנית שנלמדה מהוצאה תקבל קטגוריית הוצאה.
@@ -102,6 +126,7 @@ export function buildDraft(
   opts: { categories: Category[]; existing: Transaction[]; rules: ImportRule[] },
 ): DraftRow[] {
   const counts = existingCounts(opts.existing);
+  const recurring = recurringKeys(opts.existing);
   const seen = new Map<string, number>();
 
   // מיון לפי תאריך כדי שמסך האישור ייקרא כמו דוח — חלק מהקבצים לא ממוינים
@@ -126,6 +151,8 @@ export function buildDraft(
       categoryId: id,
       categorySource: source,
       duplicate,
+      // כפילות מדויקת כבר מספרת את הסיפור במלואו — אין טעם בשתי תגיות
+      recurringOverlap: !duplicate && recurring.has(`${row.date.slice(0, 7)}|${agorot}`),
       assignedTo: null,
     };
   });

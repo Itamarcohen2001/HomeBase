@@ -270,7 +270,10 @@ export async function getTransaction(id: string): Promise<Transaction | null> {
   return (await attachProfiles(rows))[0] ?? null;
 }
 
-/** תנועות בטווח תאריכים — משמש את זיהוי הכפילויות בייבוא. */
+/**
+ * תנועות בטווח תאריכים — משמש את זיהוי הכפילויות בייבוא.
+ * `recurring_rule_id` נחוץ כדי לתייג שורות שייתכן שכלל חוזר כבר רשם.
+ */
 export async function listTransactionsInRange(
   householdId: string,
   from: string,
@@ -279,7 +282,7 @@ export async function listTransactionsInRange(
   return unwrap(
     await supabase
       .from('transactions')
-      .select('id,occurred_on,amount_agorot,note,kind')
+      .select('id,occurred_on,amount_agorot,note,kind,recurring_rule_id')
       .eq('household_id', householdId)
       .gte('occurred_on', from)
       .lte('occurred_on', to),

@@ -23,6 +23,12 @@ export type DraftRow = ParsedRow & {
    */
   recurringOverlap: boolean;
   /**
+   * כותרת הכלל החוזר שהשורה עשויה לחפוף לו. ההיוריסטיקה עצמה לא משתנה —
+   * זו הצגה בלבד, שנותנת למשתמש את מה שדרוש כדי להכריע בעצמו כשאותו סכום
+   * מופיע פעמיים באותו יום.
+   */
+  recurringNote: string | null;
+  /**
    * למי נזקפת ההוצאה. `null` = משותפת לכל משק הבית (ברירת המחדל בייבוא —
    * מדוח אשראי אי אפשר לדעת מי מבני הבית ביצע את העסקה). אחרת `user_id`
    * של בן משק הבית שהשורה נזקפת לו.
@@ -76,21 +82,29 @@ function existingCounts(existing: Transaction[]): Map<string, number> {
 }
 
 /**
- * חודש + סכום של תנועות שנוצרו מכלל חוזר.
+ * חודש + סכום של תנועות שנוצרו מכלל חוזר, ולצידם כותרת הכלל להצגה.
  *
  * ההיוריסטיקה רחבה בכוונה — בלי התאמת תיאור, בלי חלון תאריכים ובלי ניקוד
  * דמיון. המשתמש ביקש במפורש להעדיף תיוג-יתר על פני החמצה, ומכיוון שהתגית
  * לעולם לא מבטלת סימון, המחיר של חיובי-שגוי הוא מבט אחד. בקובץ האמיתי יש
  * `העברת שכר דירה 4,600` ו-`העברה מהחשבון 4,600` **באותו יום** — אין שום
- * אות שתפריד ביניהן, ולכן גם לא מנסים.
+ * אות שתפריד ביניהן, ולכן גם לא מנסים להפריד.
+ *
+ * 💡 מה שכן אפשר: `apply_recurring` כותב `note := r.title`, ולכן הכותרת
+ * זמינה בלי לשלוף את `recurring_rules`. מציגים אותה, והמשתמש מכריע לבד
+ * איזו משתי השורות היא הכפילות — בלי שהקוד ינחש במקומו.
  */
-function recurringKeys(existing: Transaction[]): Set<string> {
-  const keys = new Set<string>();
+function recurringMatches(existing: Transaction[]): Map<string, string> {
+  const byKey = new Map<string, Set<string>>();
   for (const tx of existing) {
     if (!tx.recurring_rule_id) continue;
-    keys.add(`${tx.occurred_on.slice(0, 7)}|${tx.amount_agorot}`);
+    const key = `${tx.occurred_on.slice(0, 7)}|${tx.amount_agorot}`;
+    const titles = byKey.get(key) ?? new Set<string>();
+    const title = baseDescription(tx.note ?? '').trim();
+    if (title) titles.add(title);
+    byKey.set(key, titles);
   }
-  return keys;
+  return new Map([...byKey].map(([key, titles]) => [key, [...titles].join(NOTE_SEPARATOR)]));
 }
 
 /**
@@ -126,7 +140,7 @@ export function buildDraft(
   opts: { categories: Category[]; existing: Transaction[]; rules: ImportRule[] },
 ): DraftRow[] {
   const counts = existingCounts(opts.existing);
-  const recurring = recurringKeys(opts.existing);
+  const recurring = recurringMatches(opts.existing);
   const seen = new Map<string, number>();
 
   // מיון לפי תאריך כדי שמסך האישור ייקרא כמו דוח — חלק מהקבצים לא ממוינים
@@ -142,6 +156,7 @@ export function buildDraft(
     const duplicate = (counts.get(key) ?? 0) > index;
 
     const { id, source } = matchCategory(row.description, opts.categories, opts.rules, kind);
+    const recurringNote = recurring.get(`${row.date.slice(0, 7)}|${agorot}`) ?? null;
     return {
       ...row,
       id: `${i}-${key}`,
@@ -152,7 +167,8 @@ export function buildDraft(
       categorySource: source,
       duplicate,
       // כפילות מדויקת כבר מספרת את הסיפור במלואו — אין טעם בשתי תגיות
-      recurringOverlap: !duplicate && recurring.has(`${row.date.slice(0, 7)}|${agorot}`),
+      recurringOverlap: !duplicate && recurringNote !== null,
+      recurringNote: duplicate ? null : recurringNote || null,
       assignedTo: null,
     };
   });

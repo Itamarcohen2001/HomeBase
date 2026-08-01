@@ -334,6 +334,7 @@ begin
     (hid, 'מתנות ותרומות',   'gift',              '#C2557A', 'expense', 120),
     (hid, 'חיות מחמד',       'paw',               '#A9743F', 'expense', 130),
     (hid, 'חיסכון והשקעות',  'trending-up',       '#2F8F5B', 'expense', 140),
+    (hid, 'העברות כספים',    'swap-horizontal',   '#7A6BDF', 'expense', 150),
     (hid, 'שונות',           'ellipsis-horizontal','#8A94A6','expense', 200),
     (hid, 'משכורת',          'briefcase',         '#2E9E6B', 'income',  10),
     (hid, 'עסק עצמאי',       'business',          '#4F7FE4', 'income',  20),

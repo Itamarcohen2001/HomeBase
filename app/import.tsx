@@ -173,6 +173,7 @@ export default function Import() {
 
   const duplicateCount = useMemo(() => rows.filter((r) => r.duplicate).length, [rows]);
   const refundCount = useMemo(() => rows.filter((r) => r.isRefund).length, [rows]);
+  const recurringCount = useMemo(() => rows.filter((r) => r.recurringOverlap).length, [rows]);
 
   // ── קריאת הקובץ ───────────────────────────────────────────────────────────
 
@@ -539,6 +540,14 @@ export default function Import() {
               </InlineMessage>
             ) : null}
 
+            {recurringCount > 0 ? (
+              <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
+                <Text testID="hb-import-recurring-summary">
+                  {`${recurringCount === 1 ? 'שורה אחת דומה' : `${recurringCount} שורות דומות`} להוצאה קבועה שכבר רשומה אצלך באותו חודש, והן מסומנות «אולי הוצאה קבועה». הן נשארות מסומנות לייבוא — עברו עליהן והסירו סימון מכל שורה שכבר נרשמה. שימו לב: זו בדיקה חלקית, ושורה בלי סימון כזה עדיין עשויה להיות כפולה.`}
+                </Text>
+              </InlineMessage>
+            ) : null}
+
             {/* בורר השיוך הגורף יושב כאן, מעל הרשימה — לא כאלמנט האחרון בגלילה */}
             {sharedAvailable ? (
               <Card style={{ marginBottom: spacing.md }}>
@@ -872,8 +881,8 @@ function ImportRowItem({
       {row.recurringOverlap ? (
         <Muted style={{ fontSize: 12, marginTop: spacing.xs, paddingRight: 34 }}>
           {row.recurringNote
-            ? `ייתכן שכבר רשומה אצלך ההוצאה הקבועה «${row.recurringNote}» באותו חודש ובאותו סכום. השורה מסומנת בכל זאת — אם היא כפולה, אפשר להסיר את הסימון.`
-            : 'ייתכן שכבר רשומה אצלך הוצאה קבועה באותו חודש ובאותו סכום. השורה מסומנת בכל זאת — אם היא כפולה, אפשר להסיר את הסימון.'}
+            ? `ייתכן שכבר רשומה אצלך ההוצאה הקבועה «${row.recurringNote}» באותו חודש. השורה מסומנת בכל זאת — אם היא כפולה, אפשר להסיר את הסימון.`
+            : 'ייתכן שכבר רשומה אצלך הוצאה קבועה באותו חודש. השורה מסומנת בכל זאת — אם היא כפולה, אפשר להסיר את הסימון.'}
         </Muted>
       ) : null}
 

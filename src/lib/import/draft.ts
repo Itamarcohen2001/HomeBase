@@ -82,29 +82,63 @@ function existingCounts(existing: Transaction[]): Map<string, number> {
 }
 
 /**
- * חודש + סכום של תנועות שנוצרו מכלל חוזר, ולצידם כותרת הכלל להצגה.
+ * רמזים לחפיפה מול כללים חוזרים: חודש, סכום וכותרת של כל תנועה שנוצרה מכלל.
  *
- * ההיוריסטיקה רחבה בכוונה — בלי התאמת תיאור, בלי חלון תאריכים ובלי ניקוד
- * דמיון. המשתמש ביקש במפורש להעדיף תיוג-יתר על פני החמצה, ומכיוון שהתגית
- * לעולם לא מבטלת סימון, המחיר של חיובי-שגוי הוא מבט אחד. בקובץ האמיתי יש
- * `העברת שכר דירה 4,600` ו-`העברה מהחשבון 4,600` **באותו יום** — אין שום
- * אות שתפריד ביניהן, ולכן גם לא מנסים להפריד.
+ * **התגית עולה אם *אחד* משני התנאים מתקיים, באותו חודש** — כי לכל אחד מהם
+ * יש שלילי-שגוי מבני משלו, והם לא חופפים:
  *
- * 💡 מה שכן אפשר: `apply_recurring` כותב `note := r.title`, ולכן הכותרת
- * זמינה בלי לשלוף את `recurring_rules`. מציגים אותה, והמשתמש מכריע לבד
- * איזו משתי השורות היא הכפילות — בלי שהקוד ינחש במקומו.
+ * | תנאי | מה הוא מפספס | נמדד |
+ * |---|---|---|
+ * | סכום זהה | תשלום שאינו בדיוק סכום הכלל | הכלל הוא 2,300 והמשתמש שילם **4,600** באפריל — חודשיים יחד |
+ * | הכותרת מוכלת בתיאור | כשהבנק לא כותב את שם הכלל | `העברה מהחשבון` — הבנק לא מוסר למי שולם |
+ *
+ * מול שלושת הכללים האמיתיים בפרודקשן (`שכר דירה` 2,300 · `אינטרנט` 90 ·
+ * `חופשי חודשי נטע` 70) ומול 30 שורות הבנק: האיחוד נותן 3/3 בלי חיובי-שגוי,
+ * הסכום לבדו 2/3.
+ *
+ * ⚠️ תיוג-יתר מקובל במפורש — התגית לעולם לא מבטלת סימון, ולכן חיובי-שגוי
+ * עולה מבט אחד בעוד ששלילי-שגוי כותב את אותו כסף פעמיים בשקט. מה שאין —
+ * ניקוד דמיון, חלון תאריכים או גבולות מילה: מדדנו ש-`\b` שבור בעברית.
+ *
+ * 💡 `apply_recurring` כותב `note := r.title`, ולכן הכותרת זמינה בלי לשלוף
+ * את `recurring_rules`. מציגים אותה, והמשתמש מכריע לבד כשאותו סכום מופיע
+ * פעמיים באותו יום — בלי שהקוד ינחש במקומו.
  */
-function recurringMatches(existing: Transaction[]): Map<string, string> {
-  const byKey = new Map<string, Set<string>>();
+type RecurringHint = { month: string; agorot: number; titleKey: string; title: string };
+
+/** כותרת קצרה מדי הייתה מתאימה לכל דבר. */
+const MIN_TITLE_LENGTH = 3;
+
+function recurringHints(existing: Transaction[]): RecurringHint[] {
+  const out: RecurringHint[] = [];
   for (const tx of existing) {
     if (!tx.recurring_rule_id) continue;
-    const key = `${tx.occurred_on.slice(0, 7)}|${tx.amount_agorot}`;
-    const titles = byKey.get(key) ?? new Set<string>();
     const title = baseDescription(tx.note ?? '').trim();
-    if (title) titles.add(title);
-    byKey.set(key, titles);
+    out.push({
+      month: tx.occurred_on.slice(0, 7),
+      agorot: tx.amount_agorot,
+      titleKey: normKey(title),
+      title,
+    });
   }
-  return new Map([...byKey].map(([key, titles]) => [key, [...titles].join(NOTE_SEPARATOR)]));
+  return out;
+}
+
+function matchRecurring(
+  hints: RecurringHint[],
+  month: string,
+  agorot: number,
+  description: string,
+): { overlap: boolean; note: string | null } {
+  const key = normKey(baseDescription(description));
+  const hits = hints.filter(
+    (h) =>
+      h.month === month &&
+      (h.agorot === agorot || (h.titleKey.length >= MIN_TITLE_LENGTH && key.includes(h.titleKey))),
+  );
+  if (!hits.length) return { overlap: false, note: null };
+  const titles = [...new Set(hits.map((h) => h.title).filter(Boolean))];
+  return { overlap: true, note: titles.join(NOTE_SEPARATOR) || null };
 }
 
 /**
@@ -140,7 +174,7 @@ export function buildDraft(
   opts: { categories: Category[]; existing: Transaction[]; rules: ImportRule[] },
 ): DraftRow[] {
   const counts = existingCounts(opts.existing);
-  const recurring = recurringMatches(opts.existing);
+  const recurring = recurringHints(opts.existing);
   const seen = new Map<string, number>();
 
   // מיון לפי תאריך כדי שמסך האישור ייקרא כמו דוח — חלק מהקבצים לא ממוינים
@@ -156,7 +190,7 @@ export function buildDraft(
     const duplicate = (counts.get(key) ?? 0) > index;
 
     const { id, source } = matchCategory(row.description, opts.categories, opts.rules, kind);
-    const recurringNote = recurring.get(`${row.date.slice(0, 7)}|${agorot}`) ?? null;
+    const overlap = matchRecurring(recurring, row.date.slice(0, 7), agorot, row.description);
     return {
       ...row,
       id: `${i}-${key}`,
@@ -167,8 +201,8 @@ export function buildDraft(
       categorySource: source,
       duplicate,
       // כפילות מדויקת כבר מספרת את הסיפור במלואו — אין טעם בשתי תגיות
-      recurringOverlap: !duplicate && recurringNote !== null,
-      recurringNote: duplicate ? null : recurringNote || null,
+      recurringOverlap: !duplicate && overlap.overlap,
+      recurringNote: duplicate ? null : overlap.note,
       assignedTo: null,
     };
   });

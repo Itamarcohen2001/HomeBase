@@ -1,5 +1,5 @@
-import type { Category, Transaction } from '../types';
-import { IMPORT_KIND, type ParsedRow, normKey, round2 } from './shared';
+import type { Category, Kind, Transaction } from '../types';
+import { type ParsedRow, normKey, round2, rowKind } from './shared';
 import { guessCategoryName, isPersonalTransfer } from './merchants';
 
 export type ImportRule = { pattern: string; category_id: string };
@@ -9,6 +9,8 @@ export type DraftRow = ParsedRow & {
   id: string;
   /** האם לייבא */
   selected: boolean;
+  /** הכיוון שנגזר לשורה — כאן הוא כבר מוכרע ולא אופציונלי */
+  kind: Kind;
   categoryId: string | null;
   /** מאיפה הגיעה הקטגוריה — משפיע על האם ללמוד כלל חדש */
   categorySource: 'rule' | 'dictionary' | 'user' | 'none';
@@ -67,24 +69,29 @@ function existingCounts(existing: Transaction[]): Map<string, number> {
   return counts;
 }
 
-/** התאמת קטגוריה: קודם כלל שהמשתמש לימד, אחר כך המילון המובנה. */
+/**
+ * התאמת קטגוריה: קודם כלל שהמשתמש לימד, אחר כך המילון המובנה.
+ * ⚠️ הכיוון מגיע מהשורה. קטגוריה מהכיוון ההפוך לעולם לא מותאמת — גם לא דרך
+ * כלל נלמד, אחרת שורת `זכות` שמכילה תבנית שנלמדה מהוצאה תקבל קטגוריית הוצאה.
+ */
 function matchCategory(
   description: string,
   categories: Category[],
   rules: ImportRule[],
+  kind: Kind,
 ): { id: string | null; source: DraftRow['categorySource'] } {
   const key = normKey(description);
-  const valid = new Set(categories.map((c) => c.id));
+  const sameKind = new Set(categories.filter((c) => c.kind === kind).map((c) => c.id));
 
   // כללים נלמדים — התבנית הארוכה ביותר שמתאימה מנצחת
   const hit = rules
-    .filter((r) => r.pattern && key.includes(r.pattern) && valid.has(r.category_id))
+    .filter((r) => r.pattern && key.includes(r.pattern) && sameKind.has(r.category_id))
     .sort((a, b) => b.pattern.length - a.pattern.length)[0];
   if (hit) return { id: hit.category_id, source: 'rule' };
 
   const name = guessCategoryName(description);
   if (name) {
-    const match = categories.find((c) => c.kind === IMPORT_KIND && normKey(c.name) === normKey(name));
+    const match = categories.find((c) => c.kind === kind && normKey(c.name) === normKey(name));
     if (match) return { id: match.id, source: 'dictionary' };
   }
   return { id: null, source: 'none' };
@@ -102,16 +109,18 @@ export function buildDraft(
 
   return ordered.map(({ row, i }) => {
     const agorot = toAgorot(row.amount);
+    const kind = rowKind(row);
     const key = signature(row.date, agorot, row.description);
     const index = seen.get(key) ?? 0;
     seen.set(key, index + 1);
     // השורה ה-n בקובץ נחשבת כפילות רק אם כבר קיימים במסד לפחות n+1 מופעים
     const duplicate = (counts.get(key) ?? 0) > index;
 
-    const { id, source } = matchCategory(row.description, opts.categories, opts.rules);
+    const { id, source } = matchCategory(row.description, opts.categories, opts.rules, kind);
     return {
       ...row,
       id: `${i}-${key}`,
+      kind,
       // זיכוי לא מיובא כברירת מחדל — אי אפשר לרשום הוצאה שלילית
       selected: !duplicate && !row.isCardCharge && !row.isRefund,
       categoryId: id,

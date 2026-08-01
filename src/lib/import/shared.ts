@@ -10,14 +10,25 @@ export type ParsedRow = {
   detail?: string | null;
   /** תמיד חיובי */
   amount: number;
+  /**
+   * כיוון התנועה. דוחות אשראי הם הוצאות בלבד ולכן משאירים ריק;
+   * בקובץ עו"ש הוא נגזר מהעמודה שבה יושב הסכום (`זכות` מול `חובה`).
+   * ⚠️ **לא** מהטקסט: `מופ"ת חובה` היא משכורת, כלומר `זכות`.
+   */
+  kind?: Kind;
   /** שורת סיכום של חיוב כרטיס אשראי — לא מיובאת כברירת מחדל */
   isCardCharge?: boolean;
   /** זיכוי / החזר (סכום שלילי בדוח) — מוצג אבל לא מסומן לייבוא כברירת מחדל */
   isRefund?: boolean;
 };
 
-/** כל התנועות המיובאות הן הוצאות — ההיקף הוא דוחות אשראי בלבד. */
-export const IMPORT_KIND: Kind = 'expense';
+/** ברירת המחדל כשהקובץ אינו מוסר כיוון — דוח אשראי הוא הוצאות בלבד. */
+export const DEFAULT_IMPORT_KIND: Kind = 'expense';
+
+/** הכיוון בפועל של שורה. */
+export function rowKind(row: Pick<ParsedRow, 'kind'>): Kind {
+  return row.kind ?? DEFAULT_IMPORT_KIND;
+}
 
 export type ParseResult = {
   /** שם הפורמט להצגה למשתמש */

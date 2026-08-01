@@ -10,7 +10,7 @@ import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
 import { formatDate, formatILS, monthLabel, monthStart } from '../src/lib/format';
 import { parseFile } from '../src/lib/import/parse';
-import { IMPORT_KIND, type ParseResult } from '../src/lib/import/shared';
+import { type ParseResult } from '../src/lib/import/shared';
 import {
   buildDraft,
   noteFor,
@@ -168,13 +168,13 @@ export default function Import() {
           db.listImportRules(householdId).catch(() => [] as ImportRule[]),
           db.listMembers(householdId).catch(() => [] as HouseholdMember[]),
         ]);
-        // דוחות אשראי הם הוצאות בלבד — הבורר מציג רק קטגוריות הוצאה
-        const expenseCategories = allCategories.filter((c) => c.kind === IMPORT_KIND);
+        // הקטגוריות נמסרות במלואן — `buildDraft` מסנן לפי כיוון כל שורה.
+        // סינון מוקדם להוצאות בלבד היה מפיל בשקט כלל שמצביע על קטגוריית הכנסה.
         knownRules.current = rules;
-        setCategories(expenseCategories);
+        setCategories(allCategories);
         setMembers(householdMembers);
         setResult(parsed);
-        setRows(buildDraft(parsed.rows, { categories: expenseCategories, existing, rules }));
+        setRows(buildDraft(parsed.rows, { categories: allCategories, existing, rules }));
         setFileName(name);
       } catch (e) {
         setResult(null);
@@ -312,7 +312,7 @@ export default function Import() {
         toWrite.map((r) => ({
           householdId,
           categoryId: r.categoryId,
-          kind: IMPORT_KIND,
+          kind: r.kind,
           amountAgorot: toAgorot(r.amount),
           occurredOn: r.date,
           note: noteFor(r),
@@ -817,6 +817,9 @@ function CategoryPicker({
   onClose: () => void;
   onSelect: (categoryId: string | null) => void;
 }) {
+  // הבורר מציג רק קטגוריות מהכיוון של השורה — אין טעם להציע קטגוריית הכנסה
+  // לשורת חובה, ו-`matchCategory` ממילא לא היה מאמץ אותה.
+  const options = row ? categories.filter((c) => c.kind === row.kind) : [];
   return (
     <Modal visible={row !== null} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable
@@ -844,7 +847,7 @@ function CategoryPicker({
 
           <ScrollView contentContainerStyle={{ paddingBottom: spacing.sm }}>
             <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
-              {categories.map((c) => {
+              {options.map((c) => {
                 const active = row?.categoryId === c.id;
                 return (
                   <Pressable

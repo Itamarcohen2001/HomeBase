@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { monthEnd, monthStart } from './format';
+import { recordPendingAllocation } from './networth';
 import type {
   Budget,
   Category,
@@ -212,9 +213,68 @@ export async function addTransaction(input: {
   };
   if (await hasSharedColumn()) payload.is_shared = Boolean(input.isShared);
 
-  return unwrap(
+  const tx = unwrap(
     await supabase.from('transactions').insert(payload).select('*').single(),
   ) as unknown as Transaction;
+
+  await noteCapitalMove(input.householdId, input.categoryId, input.kind, input.amountAgorot, tx.id);
+  return tx;
+}
+
+/**
+ * 🔴 בלי הכיס הכסף **מתאדה**: הוצאה שסווגה כתנועת הון מקטינה את העו"ש,
+ *    אבל היא עוד לא הופיעה כאחזקה, ולכן סך ההון יורד למרות שלא נצרך שקל.
+ *
+ *      עו"ש 5,000 · השקעות 100,000 · סה"כ 105,000
+ *      «העברה להשקעות» 3,000 ⇒ 2,000 + 100,000 = 102,000  🔴
+ *      עם הכיס:               2,000 + 100,000 + 3,000 = 105,000 ✅
+ *
+ * 🎯 הרישום יושב כאן ולא במסך ההוספה, כדי שכל נתיב כתיבה יקבל אותו —
+ *    הוספה ידנית, ייבוא, וכלל חוזר. פונקציה נכונה שלא נקראת שווה לכלום,
+ *    וזה בדיוק מה שקרה ל-`extractForeignSymbol`.
+ */
+async function noteCapitalMove(
+  householdId: string,
+  categoryId: string | null,
+  kind: Kind,
+  amountAgorot: number,
+  transactionId: string,
+): Promise<void> {
+  if (kind !== 'expense' || !categoryId) return;
+  try {
+    if (!(await isCapitalMoveCategory(householdId, categoryId))) return;
+    await recordPendingAllocation({ householdId, transactionId, amountAgorot });
+  } catch {
+    // הכיס הוא שכבת דיוק. התנועה כבר נשמרה, ואסור שכשל כאן ייראה למשתמש
+    // ככשל שמירה — הוא היה מנסה שוב ויוצר תנועה כפולה.
+  }
+}
+
+const capitalMoveCache = new Map<string, Set<string>>();
+
+/** האם הקטגוריה מסומנת כתנועת הון. ממופה פעם אחת למשק בית. */
+export async function isCapitalMoveCategory(
+  householdId: string,
+  categoryId: string,
+): Promise<boolean> {
+  let set = capitalMoveCache.get(householdId);
+  if (!set) {
+    const { data, error } = await supabase
+      .from('categories')
+      .select('id')
+      .eq('household_id', householdId)
+      .eq('is_capital_move', true);
+    // לפני מיגרציה 0011 העמודה אינה קיימת — אין תנועות הון, וזה תקין.
+    if (error) return false;
+    set = new Set((data ?? []).map((r) => (r as { id: string }).id));
+    capitalMoveCache.set(householdId, set);
+  }
+  return set.has(categoryId);
+}
+
+/** מאפסים כשקטגוריות משתנות, אחרת דגל שנדלק זה עתה לא ייתפס. */
+export function clearCapitalMoveCache(): void {
+  capitalMoveCache.clear();
 }
 
 export async function updateTransaction(
@@ -407,8 +467,27 @@ export async function addTransactionsBulk(
   });
 
   const inserted = unwrap(
-    await supabase.from('transactions').insert(payload).select('id'),
-  ) as unknown as { id: string }[];
+    await supabase.from('transactions').insert(payload).select('id, category_id, kind, amount_agorot, household_id'),
+  ) as unknown as {
+    id: string;
+    category_id: string | null;
+    kind: Kind;
+    amount_agorot: number;
+    household_id: string;
+  }[];
+
+  // 🎯 גם נתיב הייבוא רושם לכיס. שורה שסווגה «העברה להשקעות» בייבוא היא
+  //    אותה תנועת הון בדיוק כמו הזנה ידנית, ואילו הכיס היה יושב רק במסך
+  //    ההוספה — הייבוא היה מאייד את הכסף בשקט.
+  for (const row of inserted) {
+    await noteCapitalMove(
+      row.household_id,
+      row.category_id,
+      row.kind,
+      Number(row.amount_agorot),
+      row.id,
+    );
+  }
   return inserted.length;
 }
 

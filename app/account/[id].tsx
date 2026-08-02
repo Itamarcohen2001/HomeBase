@@ -483,6 +483,11 @@ export default function AccountDetail() {
           accessibilityLabel="יתרה בשקלים"
           testID="hb-account-balance-edit"
         />
+        {/* ⚠️ הסכום שהבנק מציג כולל לעתים קרנות כספיות. אם הן מוזנות גם
+            כאחזקה למטה, הן ייספרו פעמיים **בלי שום שגיאה**. */}
+        <Muted testID="hb-account-balance-hint-edit" style={{ marginBottom: spacing.sm, fontSize: 12 }}>
+          יתרת המזומן בלבד — בלי ניירות ערך וקרנות שמופיעים ברשימה למטה, אחרת הם ייספרו פעמיים.
+        </Muted>
         <Checkbox
           value={overdrawn}
           onValueChange={setOverdrawn}
@@ -616,9 +621,12 @@ export default function AccountDetail() {
                 {r.name}
               </Body>
               <View style={{ ...rtlRow, gap: spacing.xs, flexWrap: 'wrap', marginTop: spacing.xs }}>
+                {/* 🎯 מספר הנייר הוא לעתים הדיסקרימינטור **היחיד**: חמש קרנות
+                    בקטלוג נקראות «אנליסט כספית» ושתיים מהן «כספית שקלית».
+                    לכן הוא מודגש ולא מוסתר כטקסט משני. */}
+                <Badge icon="pricetag-outline" color={colors.primary}>{r.external_id}</Badge>
                 {r.category ? <Badge color={colors.textMuted}>{r.category}</Badge> : null}
                 {r.symbol ? <Badge color={colors.textMuted}>{r.symbol}</Badge> : null}
-                <Muted style={{ fontSize: 11 }}>{r.external_id}</Muted>
               </View>
             </Card>
           );

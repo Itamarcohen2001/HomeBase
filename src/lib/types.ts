@@ -33,6 +33,12 @@ export type Category = {
   kind: Kind;
   sort_order: number;
   is_archived: boolean;
+  /**
+   * תנועת הון: הכסף עובר בין חשבונות ולא נצרך.
+   * 🔴 הקוד בודק את **הדגל** ולא את שם הקטגוריה — המשתמש יכול לשנות שם.
+   * אופציונלי כי העמודה נוספה במיגרציה 0011; לפניה היא פשוט חסרה.
+   */
+  is_capital_move?: boolean;
 };
 
 export type Budget = {

@@ -32,6 +32,8 @@ import {
   SectionTitle,
 } from '../src/ui';
 import { colors, rtlRow, spacing } from '../src/theme';
+import { Donut } from '../src/ui/Donut';
+import type { AnalysisSlice } from '../src/lib/types';
 import { errorText } from '../src/lib/authErrors';
 
 const KIND_ICON: Record<nw.AccountKind, { icon: 'business' | 'trending-up' | 'cash'; color: string }> = {
@@ -50,6 +52,7 @@ export default function NetWorth() {
   const [ready, setReady] = useState(false);
   const [schemaOk, setSchemaOk] = useState(true);
   const [rows, setRows] = useState<nw.AccountValue[]>([]);
+  const [classes, setClasses] = useState<nw.AssetClassValue[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [pricing, setPricing] = useState(false);
@@ -69,9 +72,17 @@ export default function NetWorth() {
       setSchemaOk(ok);
       if (!ok) {
         setRows([]);
+        setClasses([]);
         return;
       }
       setRows(await nw.listAccountValues(householdId));
+      // ⚠️ ה-view נוסף במיגרציה 0011, בעוד `hasNetWorthSchema` בודקת את 0010.
+      //    כשרק 0010 רצה — מציגים את הסכום בלי הגרף במקום לשבור את המסך.
+      try {
+        setClasses(await nw.listAssetClassValues(householdId));
+      } catch {
+        setClasses([]);
+      }
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון את החשבונות') });
     } finally {
@@ -100,6 +111,12 @@ export default function NetWorth() {
     }, null);
     return { total, unpriced, fromReport, oldest };
   }, [rows]);
+
+  /**
+   * פרוסות ההתפלגות. הלוגיקה יושבת ב-`networth.ts` כדי שתהיה ניתנת
+   * למדידה בלי לרנדר מסך.
+   */
+  const distribution = useMemo(() => nw.buildDistribution(classes), [classes]);
 
   const grouped = useMemo(() => {
     const by = new Map<nw.AccountKind, nw.AccountValue[]>();
@@ -243,6 +260,55 @@ export default function NetWorth() {
         />
       </Card>
 
+      {distribution.slices.length > 0 ? (
+        <Card testID="hb-networth-distribution">
+          <SectionTitle>התפלגות</SectionTitle>
+          <View style={{ alignItems: 'center', marginBottom: spacing.lg }}>
+            <Donut
+              slices={distribution.slices}
+              accessibilityLabel="התפלגות ההון לפי סוג נכס"
+            >
+              <Muted style={{ fontSize: 11 }}>סך הנכסים</Muted>
+              <Body style={{ fontWeight: '700' }}>{formatMoney(distribution.sum)}</Body>
+            </Donut>
+          </View>
+
+          {distribution.slices.map((slice) => (
+            <View
+              key={slice.key}
+              testID={`hb-networth-slice-${slice.key}`}
+              style={{
+                ...rtlRow,
+                alignItems: 'center',
+                gap: spacing.sm,
+                paddingVertical: spacing.xs,
+              }}
+            >
+              <View
+                style={{ width: 12, height: 12, borderRadius: 6, backgroundColor: slice.color }}
+              />
+              <Body style={{ flex: 1 }}>{slice.label}</Body>
+              <Muted style={{ fontSize: 12 }}>{`${slice.percent}%`}</Muted>
+              <Body style={{ fontWeight: '600' }}>{formatMoney(slice.amount)}</Body>
+            </View>
+          ))}
+
+          {distribution.pending > 0 ? (
+            <Muted testID="hb-networth-pending-note" style={{ marginTop: spacing.md, fontSize: 12 }}>
+              {`${formatMoney(distribution.pending)} סומנו כהעברה להשקעות ועדיין לא שויכו לחשבון. הכסף נספר בהון, אבל כדאי להוסיף את האחזקה שנרכשה.`}
+            </Muted>
+          ) : null}
+
+          {distribution.negative.length > 0 ? (
+            <Muted testID="hb-networth-negative-note" style={{ marginTop: spacing.md, fontSize: 12 }}>
+              {`${distribution.negative
+                .map((n) => `${n.label} ${formatMoney(n.amount)}`)
+                .join(' · ')} — יתרה שלילית אינה מוצגת בגרף, אבל היא כלולה בסך הכול.`}
+            </Muted>
+          ) : null}
+        </Card>
+      ) : null}
+
       {grouped.map((group) => (
         <View key={group.kind}>
           <SectionTitle>{nw.ACCOUNT_KIND_LABEL[group.kind]}</SectionTitle>
@@ -307,6 +373,14 @@ export default function NetWorth() {
               testID="hb-account-balance"
             />
           </View>
+
+          {/* ⚠️ אם המשתמש יזין את הסכום שהבנק מציג — שכולל קרן כספית —
+              וגם יוסיף את הקרן כאחזקה, היא תיספר פעמיים **בשקט**. */}
+          <Muted testID="hb-account-balance-hint" style={{ marginTop: -spacing.xs, marginBottom: spacing.md, fontSize: 12 }}>
+            {kind === 'brokerage'
+              ? 'יתרת המזומן בלבד — בלי ניירות ערך. את הניירות מוסיפים בתוך החשבון, אחרת הם ייספרו פעמיים.'
+              : 'יתרת העובר ושב בלבד — בלי קרנות וניירות ערך שהוזנו בנפרד, אחרת הם ייספרו פעמיים.'}
+          </Muted>
 
           {/* יתרת עו"ש שלילית היא מצב אמיתי ונמדד — ולכן העמודה במסד חתומה */}
           <Checkbox

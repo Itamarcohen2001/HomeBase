@@ -656,7 +656,7 @@ export function buildForecast(
     // שיוך מפורש לחשבון אחר — לא שלנו
     if (b.account_id !== null && b.account_id !== account.id) continue;
 
-    const sameInstitution = norm(b.institution) === institution;
+    const sameInstitution = matchesInstitution(b.institution, institution);
     if (b.account_id === null && !sameInstitution) {
       // 🔴 מוסד אחר או לא ידוע ⇒ מצהירים ולא מנכים
       if (b.debited_on === null) unattributed.push(charge);
@@ -694,6 +694,32 @@ function toCharge(b: ImportBatch): ForecastCharge {
 
 function norm(v: string | null | undefined): string {
   return String(v ?? '').trim().toLowerCase();
+}
+
+/** אורך מזערי לטוקן משמעותי — כמו `MIN_TITLE_LENGTH` בתגית החוזרת. */
+const MIN_INSTITUTION_TOKEN = 3;
+
+/**
+ * האם האצווה שייכת למוסד של החשבון.
+ *
+ * 🔴 **השוואת שוויון לבדה אינה יורה לעולם, וזה נמדד.** `source` שהפרסר
+ *    מצהיר הוא מנפיק הכרטיס — «מסטרקארד דירקט — בנק הפועלים» /
+ *    «כ.א.ל / ויזה — אוצר החייל» — ולעולם אינו שווה לשם הבנק שהמשתמש
+ *    הקליד בחשבון («הפועלים»). ⇒ כל אצווה הייתה נוחתת ב-`unattributed`
+ *    **לצמיתות**, והצפי לא היה עובד אף פעם, בלי שום שגיאה.
+ *
+ * ⇒ הכלה דו-כיוונית: שם הבנק **מוכל** במחרוזת שהדוח מצהיר.
+ *
+ * 🪤 ולא בלי שער אורך. בלי `MIN_INSTITUTION_TOKEN` מוסד בן תו אחד היה
+ *    מתאים לכל דוח.
+ */
+function matchesInstitution(batchInstitution: string | null, accountInstitution: string): boolean {
+  const b = norm(batchInstitution);
+  if (!b || !accountInstitution) return false;
+  if (b === accountInstitution) return true;
+  if (accountInstitution.length >= MIN_INSTITUTION_TOKEN && b.includes(accountInstitution)) return true;
+  if (b.length >= MIN_INSTITUTION_TOKEN && accountInstitution.includes(b)) return true;
+  return false;
 }
 
 export async function listImportBatches(householdId: string): Promise<ImportBatch[]> {  try {

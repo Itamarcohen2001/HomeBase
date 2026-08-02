@@ -374,6 +374,8 @@ export interface AssetClassValue {
   household_id: string;
   asset_class: AssetClass;
   value_agorot: number;
+  /** אחזקות בלי מחיר **וגם** בלי שווי בדוח — תרמו 0 ולכן מעוותות אחוזים */
+  unpriced_count?: number;
 }
 
 /**
@@ -438,6 +440,12 @@ export interface Distribution {
   /** סכום הפרוסות החיוביות בלבד — המכנה של האחוזים */
   sum: number;
   pending: number;
+  /**
+   * 🔴 אחזקות שאין להן מחיר וגם אין להן שווי בדוח. הן תרמו 0, ולכן
+   *    **האחוזים למטה חושבו על בסיס חסר**. פאי מנרמל, ולכן שגיאה כזו
+   *    מתפשטת לכל הפרוסות ולא נשארת מקומית — חובה להצהיר עליה.
+   */
+  unpriced: number;
 }
 
 /**
@@ -451,7 +459,9 @@ export interface Distribution {
  */
 export function buildDistribution(rows: AssetClassValue[]): Distribution {
   const byClass = new Map<AssetClass, number>();
+  let unpriced = 0;
   for (const r of rows) {
+    unpriced += Number(r.unpriced_count ?? 0) || 0;
     const v = Number(r.value_agorot ?? 0);
     if (!Number.isFinite(v)) continue;
     byClass.set(r.asset_class, (byClass.get(r.asset_class) ?? 0) + v);
@@ -478,7 +488,7 @@ export function buildDistribution(rows: AssetClassValue[]): Distribution {
   const sum = slices.reduce((s, p) => s + p.amount, 0);
   for (const s of slices) s.percent = sum > 0 ? Math.round((s.amount / sum) * 100) : 0;
 
-  return { slices, negative, sum, pending: Math.max(0, byClass.get('pending') ?? 0) };
+  return { slices, negative, sum, pending: Math.max(0, byClass.get('pending') ?? 0), unpriced };
 }
 
 // ── כיס הממתינים לשיוך ─────────────────────────────────────────────────────

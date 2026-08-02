@@ -1087,6 +1087,10 @@ latest_prices as (
   order by p.security_id, p.price_date desc
 ),
 -- ניירות: המחלקה מגיעה מהנייר עצמו
+-- 🔴 אחזקה בלי מחיר **וגם** בלי שווי בדוח היא **סכום חסר, לא אפס** (NW-15).
+--    ב-view הראשי זה כבר נספר כ-`unpriced_holdings`; כאן זה חמור יותר,
+--    כי פאי **מנרמל**: פרוסה שנבלעה ב-0 גורמת לכל השאר להציג 100.0%
+--    על בסיס שגוי, בלי שום סימן. לכן היא נספרת ומדווחת החוצה.
 from_holdings as (
   select
     lh.household_id,
@@ -1098,7 +1102,11 @@ from_holdings as (
         else lh.stated_value_agorot
       end,
       0
-    )::bigint as value_agorot
+    )::bigint as value_agorot,
+    case
+      when lp.ils_price_agorot is null and lh.stated_value_agorot is null then 1
+      else 0
+    end as unpriced
   from latest_holdings lh
   join public.securities s on s.id = lh.security_id
   left join latest_prices lp on lp.security_id = lh.security_id
@@ -1109,7 +1117,8 @@ from_balances as (
   select
     a.household_id,
     case when a.kind = 'bank' then 'checking' else 'cash' end as asset_class,
-    a.balance_agorot as value_agorot
+    a.balance_agorot as value_agorot,
+    0 as unpriced
   from public.accounts a
   where a.is_archived = false and a.balance_agorot <> 0
 ),
@@ -1118,21 +1127,28 @@ from_pending as (
   select
     p.household_id,
     'pending' as asset_class,
-    sum(p.amount_agorot)::bigint as value_agorot
+    sum(p.amount_agorot)::bigint as value_agorot,
+    0 as unpriced
   from public.pending_allocations p
   where p.resolved_at is null
   group by p.household_id
 )
-select household_id, asset_class, sum(value_agorot)::bigint as value_agorot
+select
+  household_id,
+  asset_class,
+  sum(value_agorot)::bigint as value_agorot,
+  sum(unpriced)::bigint as unpriced_count
 from (
-  select household_id, asset_class, value_agorot from from_holdings
+  select household_id, asset_class, value_agorot, unpriced from from_holdings
   union all
-  select household_id, asset_class, value_agorot from from_balances
+  select household_id, asset_class, value_agorot, unpriced from from_balances
   union all
-  select household_id, asset_class, value_agorot from from_pending
+  select household_id, asset_class, value_agorot, unpriced from from_pending
 ) all_sources
 group by household_id, asset_class
-having sum(value_agorot) <> 0;
+-- 🔴 מחלקה שכל אחזקותיה חסרות מחיר מסתכמת ב-0. `<> 0` לבדו היה **מעלים
+--    אותה לגמרי** — בדיוק הפער שהיא אמורה להצהיר עליו.
+having sum(value_agorot) <> 0 or sum(unpriced) > 0;
 
 comment on view public.net_worth_by_asset_class is
-  'התפלגות ההון לפי מחלקת נכס. ניירות לפי securities.asset_class, יתרות לפי accounts.kind, והכיס כפרוסה נפרדת.';
+  'התפלגות ההון לפי מחלקת נכס. ניירות לפי securities.asset_class, יתרות לפי accounts.kind, והכיס כפרוסה נפרדת. unpriced_count מצהיר אחזקות בלי מחיר ובלי שווי — הן תורמות 0 ולכן מעוותות אחוזים.';

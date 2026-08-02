@@ -260,18 +260,23 @@ export default function NetWorth() {
         />
       </Card>
 
-      {distribution.slices.length > 0 ? (
+      {/* 🔴 גם כשאין ולו פרוסה אחת — אם יש אחזקות בלי מחיר, זו בדיוק
+          המצב שחייב להיאמר. תנאי `slices.length > 0` לבדו היה מסתיר
+          את האזהרה דווקא כשהיא הכי נחוצה. */}
+      {distribution.slices.length > 0 || distribution.unpriced > 0 ? (
         <Card testID="hb-networth-distribution">
           <SectionTitle>התפלגות</SectionTitle>
-          <View style={{ alignItems: 'center', marginBottom: spacing.lg }}>
-            <Donut
-              slices={distribution.slices}
-              accessibilityLabel="התפלגות ההון לפי סוג נכס"
-            >
-              <Muted style={{ fontSize: 11 }}>סך הנכסים</Muted>
-              <Body style={{ fontWeight: '700' }}>{formatMoney(distribution.sum)}</Body>
-            </Donut>
-          </View>
+          {distribution.slices.length > 0 ? (
+            <View style={{ alignItems: 'center', marginBottom: spacing.lg }}>
+              <Donut
+                slices={distribution.slices}
+                accessibilityLabel="התפלגות ההון לפי סוג נכס"
+              >
+                <Muted style={{ fontSize: 11 }}>סך הנכסים</Muted>
+                <Body style={{ fontWeight: '700' }}>{formatMoney(distribution.sum)}</Body>
+              </Donut>
+            </View>
+          ) : null}
 
           {distribution.slices.map((slice) => (
             <View
@@ -296,6 +301,12 @@ export default function NetWorth() {
           {distribution.pending > 0 ? (
             <Muted testID="hb-networth-pending-note" style={{ marginTop: spacing.md, fontSize: 12 }}>
               {`${formatMoney(distribution.pending)} סומנו כהעברה להשקעות ועדיין לא שויכו לחשבון. הכסף נספר בהון, אבל כדאי להוסיף את האחזקה שנרכשה.`}
+            </Muted>
+          ) : null}
+
+          {distribution.unpriced > 0 ? (
+            <Muted testID="hb-networth-distribution-unpriced" style={{ marginTop: spacing.md, fontSize: 12 }}>
+              {`ל-${distribution.unpriced} אחזקות אין מחיר וגם אין שווי בדוח, ולכן הן נספרו כאפס. האחוזים כאן מחושבים על בסיס חסר.`}
             </Muted>
           ) : null}
 

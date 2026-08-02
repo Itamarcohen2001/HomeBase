@@ -124,31 +124,65 @@ function closeEnough(a: number, b: number): boolean {
 }
 
 /**
- * 🎯 זיהוי שורת מזומן מט"ח — **אריתמטי, בלי מספרי נייר ובלי מילות מפתח.**
+ * 🎯 זיהוי שורת מזומן מט"ח.
  *
  * שורת מט"ח נראית כמו נייר: יש לה מספר, כמות ו«שער». אבל ה«שער» שלה הוא
- * שער החליפין עצמו. שליחתה למנוע התמחור מחזירה זבל.
+ * שער החליפין עצמו, ושליחתה למנוע התמחור מחזירה זבל.
  *
- * ההבחנה נובעת מכך שכל שורה מצהירה על השווי שלה, ורק פירוש אחד משחזר אותו:
+ * 🔴 **הסימן הראשי הוא עמודת «סוג נייר», לא האריתמטיקה.** נמדד על שני
+ *    קבצים אמיתיים: הזהות `כמות × שער ÷ 100 = שווי` מתקיימת ב-**9 מתוך 11**
+ *    השורות, כולל חמש מניות שקליות רגילות לגמרי — מפני שנייר שקלי מצוטט
+ *    גם הוא באגורות. אריתמטיקה לבדה הייתה מסמנת חמש מניות כמזומן.
  *
- *   נייר במטבע זר   «שער» ביחידות מלאות  ⇒ שווי = כמות × שער × שער חליפין
- *   מזומן מט"ח      «שער» באגורות שקל    ⇒ שווי = כמות × שער / 100
+ * 🔴 **וגם התנאי «שורה שאינה שקלית» שגוי.** בית ההשקעות מדווח את *השווי*
+ *    בשקלים, ולכן תא «מטבע» של שורת המט"ח אומר «שקל חדש···000». הסינון
+ *    לפי מטבע חסם את השורה היחידה שאותה נועד לתפוס, בשקט.
  *
- * ולכן: שורה שאינה שקלית שבה `כמות × שער / 100` **משחזרת** את «שווי נוכחי»
- * היא מזומן מט"ח. עבור נייר דולרי אמיתי הפירוש הזה נותן שווי הקטן פי ~300,
- * כלומר הוא מרמז על שער חליפין של 0.01 — ולכן אין התנגשות.
+ * ⚠️ «סוג נייר» הוא שדה סוג **מובנה שהקובץ מצהיר** — לא היוריסטיקה על שם
+ *    חופשי ולא מזהה קשיח, ולכן אינו סותר את דרישת הגנריות.
+ *
+ * 🔬 המטבע נגזר מ**שם** השורה («דולר ארה"ב») ולא מתא המטבע, שכאמור מדווח
+ *    את מטבע השווי. כשאי אפשר לקבוע אותו — מצהירים ולא מנחשים.
  */
+const CASH_TYPE = /מזומן/;
+
+export interface FxCashDetection {
+  isFxCash: boolean;
+  /** מטבע המזומן עצמו, לא מטבע השווי */
+  currency: string | null;
+  /** «סוג נייר» הכריז מזומן אבל האריתמטיקה אינה תומכת */
+  conflict: boolean;
+}
+
 export function detectFxCash(row: {
+  securityType: string | null;
+  name: string;
   currency: string | null;
   quantity: number;
   statedRate: number;
   statedValue: number;
-}): boolean {
-  if (row.currency === 'ILS' || !row.currency) return false;
-  if (!(row.quantity > 0) || !Number.isFinite(row.statedRate) || !Number.isFinite(row.statedValue)) {
-    return false;
+}): FxCashDetection {
+  const none: FxCashDetection = { isFxCash: false, currency: null, conflict: false };
+  if (!row.securityType || !CASH_TYPE.test(row.securityType)) return none;
+
+  // המטבע מגיע מהשם. תא המטבע מדווח את מטבע השווי (שקלים) ולכן חסר ערך כאן.
+  let iso: string | null = null;
+  for (const [re, code] of CURRENCY_BY_NAME) {
+    if (re.test(row.name)) {
+      iso = code;
+      break;
+    }
   }
-  return closeEnough((row.quantity * row.statedRate) / AGOROT_DIVISOR, row.statedValue);
+  // מזומן שקלי אינו צמד מט"ח; ומטבע שלא זוהה — מצהירים במקום להמציא צמד.
+  if (!iso || iso === 'ILS') return { isFxCash: false, currency: iso, conflict: true };
+
+  if (!(row.quantity > 0) || !Number.isFinite(row.statedRate) || !Number.isFinite(row.statedValue)) {
+    return { isFxCash: false, currency: iso, conflict: true };
+  }
+
+  // אישוש: השער באגורות שקל, ולכן `כמות × שער ÷ 100` חייב לשחזר את השווי.
+  const supported = closeEnough((row.quantity * row.statedRate) / AGOROT_DIVISOR, row.statedValue);
+  return { isFxCash: supported, currency: iso, conflict: !supported };
 }
 
 const HEADER_NAME = 'שם נייר';
@@ -194,6 +228,7 @@ export function parsePortfolioRows(rows: Matrix, source = 'קובץ אחזקות
   let skippedNoQty = 0;
   let unknownCurrency = 0;
   let unreconciled = 0;
+  const cashConflicts: string[] = [];
 
   for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i] ?? [];
@@ -217,7 +252,17 @@ export function parsePortfolioRows(rows: Matrix, source = 'קובץ אחזקות
     const cur = parseCurrencyCell(at(row, HEADER_CURRENCY));
     if (!cur.currency) unknownCurrency++;
 
-    const isFxCash = detectFxCash({ currency: cur.currency, quantity, statedRate, statedValue });
+    const securityType = norm(at(row, HEADER_TYPE)) || null;
+    const fx = detectFxCash({
+      securityType,
+      name,
+      currency: cur.currency,
+      quantity,
+      statedRate,
+      statedValue,
+    });
+    const isFxCash = fx.isFxCash;
+    if (fx.conflict) cashConflicts.push(name || externalId);
 
     // מחיר היחידה בשקלים כפי שהוא משתמע מהקובץ. לשורה שקלית ולמזומן מט"ח
     // ה«שער» באגורות; לנייר זר הוא ביחידות מלאות ודורש שער חליפין שאינו
@@ -235,12 +280,13 @@ export function parsePortfolioRows(rows: Matrix, source = 'קובץ אחזקות
     if (!reconciled) unreconciled++;
 
     holdings.push({
-      externalId: isFxCash ? `${cur.currency}ILS=X` : externalId,
+      externalId: isFxCash ? `${fx.currency}ILS=X` : externalId,
       name: name || externalId,
       symbol: norm(at(row, HEADER_SYMBOL)) || null,
-      securityType: norm(at(row, HEADER_TYPE)) || null,
+      securityType,
       currencyCode: cur.code,
-      currency: cur.currency ?? 'ILS',
+      // שורת מזומן מט"ח מחזיקה את מטבע המזומן, לא את מטבע השווי
+      currency: (isFxCash ? fx.currency : cur.currency) ?? 'ILS',
       quantity,
       statedRate,
       statedValue: Number.isFinite(statedValue) ? statedValue : 0,
@@ -282,6 +328,13 @@ export function parsePortfolioRows(rows: Matrix, source = 'קובץ אחזקות
   if (missingValue !== null) {
     notes.push(
       `«אחוז אחזקה» בקובץ מסתכם ב-${sharePctTotal}% ולא ב-100%. חסרות אחזקות בשווי של כ-${missingValue} ₪ שהייצוא אינו כולל.`,
+    );
+  }
+  if (cashConflicts.length) {
+    // 🔴 «סוג נייר» הצהיר מזומן אבל המטבע או האריתמטיקה לא תמכו.
+    //    מצהירים ולא מנחשים — שורה כזו תישאר בשווי שבדוח ולא תתומחר כצמד מט"ח.
+    notes.push(
+      `${cashConflicts.length} שורות מסומנות בקובץ כמזומן אך לא הצלחנו לקבוע את המטבע שלהן (${cashConflicts.join(', ')}). הן יישמרו בשווי שבדוח בלי מחיר חי.`,
     );
   }
   if (unknownCurrency) {

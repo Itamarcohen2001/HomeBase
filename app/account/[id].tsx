@@ -57,6 +57,7 @@ export default function AccountDetail() {
   const [overdrawn, setOverdrawn] = useState(false);
   const [savingBalance, setSavingBalance] = useState(false);
   const [marking, setMarking] = useState(false);
+  const [trackingSchemaOk, setTrackingSchemaOk] = useState(false);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<nw.CatalogResult[]>([]);
@@ -79,6 +80,8 @@ export default function AccountDetail() {
       const accounts = await nw.listAccounts(householdId);
       const found = accounts.find((a) => a.id === id) ?? null;
       setAccount(found);
+      // 🔴 בלי 0013 אין מה לסמן — הצ'קבוקס לא יוצג במקום להיכשל בלחיצה.
+      setTrackingSchemaOk(await nw.hasTransactionAccountColumn());
       if (found) {
         setBalance(String(Math.abs(found.balance_agorot) / 100));
         setOverdrawn(found.balance_agorot < 0);
@@ -538,8 +541,10 @@ export default function AccountDetail() {
       </Card>
 
       {/* 🎯 החלטה 19: חשבון אחד אחראי על התנועות, והמשתמש בוחר אותו.
-          «יש לי כמה חשבונות עו"ש, ואני אסמן אחד כאחראי על התנועות». */}
-      {account.kind === 'bank' ? (
+          «יש לי כמה חשבונות עו"ש, ואני אסמן אחד כאחראי על התנועות».
+          🔴 מוצג רק כשהעמודה קיימת: בלי 0013 הצ'קבוקס היה נראה זמין
+          וה-RPC היה נכשל — פעולה שמובטחת ונשברת גרועה מפעולה שאינה מוצגת. */}
+      {account.kind === 'bank' && trackingSchemaOk ? (
         <Card>
           <Checkbox
             value={isTxAccount}

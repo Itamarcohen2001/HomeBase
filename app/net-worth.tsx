@@ -66,6 +66,7 @@ export default function NetWorth() {
   const [saving, setSaving] = useState(false);
   const [tracked, setTracked] = useState<nw.TrackedAccount[]>([]);
   const [txns, setTxns] = useState<nw.TrackedTransaction[]>([]);
+  const [trackingSchemaOk, setTrackingSchemaOk] = useState(true);
 
   const load = useCallback(async () => {
     if (!householdId) return;
@@ -88,6 +89,9 @@ export default function NetWorth() {
 
       // 🎯 החלטה 18: היתרה נצברת מהעוגן. שולפים את החשבונות עם הסימון,
       //    ואת התנועות **רק מאז העוגן** — משק בית ותיק צובר אלפים.
+      // 🔴 הבדיקה נפרדת: 0010 יכולה לרוץ בלי 0013, ואז «אין חשבון מסומן»
+      //    היה מוצג במקום «המעקב טרם הופעל» — ושולח לפעולה שנכשלת.
+      setTrackingSchemaOk(await nw.hasTransactionAccountColumn());
       const accts = await nw.listTrackedAccounts(householdId);
       setTracked(accts);
       const from = nw.anchorDate(nw.pickTransactionAccount(accts)?.captured_at);
@@ -125,7 +129,10 @@ export default function NetWorth() {
    * 🎯 החלטה 18: היתרה **נצברת** מהעוגן במקום להיות צילום שתקוע.
    *    הלוגיקה יושבת ב-`networth.ts` כדי שתהיה ניתנת למדידה בלי מסך.
    */
-  const tracking = useMemo(() => nw.buildBalanceTracking(tracked, txns), [tracked, txns]);
+  const tracking = useMemo(
+    () => nw.buildBalanceTracking(tracked, txns, { hasSchema: trackingSchemaOk }),
+    [tracked, txns, trackingSchemaOk],
+  );
 
   /**
    * פרוסות ההתפלגות. הלוגיקה יושבת ב-`networth.ts` כדי שתהיה ניתנת
@@ -267,6 +274,15 @@ export default function NetWorth() {
             </Badge>
           ) : null}
         </View>
+
+        {/* 🔴 העמודה עצמה חסרה (0013 טרם רצה). מצהירים על **הסיבה הנכונה**:
+            הודעת «לא נבחר חשבון» הייתה שולחת לסמן חשבון, וגם ה-RPC אינו קיים. */}
+        {tracking.gap === 'no_schema' ? (
+          <Muted testID="hb-networth-no-tracking-schema" style={{ marginTop: spacing.md, fontSize: 12 }}>
+            מעקב היתרה טרם הופעל במסד הנתונים, ולכן הסכום מציג את היתרות שהוקלדו בלי התנועות שנרשמו
+            מאז.
+          </Muted>
+        ) : null}
 
         {/* 🔴 אין חשבון מסומן ⇒ **מצהירים**. בחירה שרירותית של החשבון
             הראשון הייתה מייצרת מספר שנראה תקין ומחושב על החשבון הלא נכון. */}

@@ -695,7 +695,7 @@ export interface TrackedTransaction {
   occurred_on: string;
 }
 
-export type TrackingGap = 'no_transaction_account' | 'no_anchor_date';
+export type TrackingGap = 'no_schema' | 'no_transaction_account' | 'no_anchor_date';
 
 export interface BalanceTracking {
   /** האם יש מעקב. `false` ⇒ **מצהירים**, לא מנחשים ולא בוחרים חשבון. */
@@ -764,6 +764,7 @@ export function pickTransactionAccount<T extends { is_transaction_account?: bool
 export function buildBalanceTracking(
   accounts: TrackedAccount[],
   transactions: TrackedTransaction[],
+  opts?: { hasSchema?: boolean },
 ): BalanceTracking {
   const empty = {
     accountId: null,
@@ -776,6 +777,13 @@ export function buildBalanceTracking(
     current: 0,
     counted: 0,
   };
+
+  // 🔴 **בלי 0013 העמודה אינה קיימת, ה-select נכשל, ו-`listTrackedAccounts`
+  //    מחזיר `[]`** — שזה בדיוק מה שמתקבל גם כשהסכימה קיימת ואין סימון.
+  //    מדדתי ששני המצבים היו **בלתי נבדלים**, ולכן המסך היה שולח את
+  //    המשתמש לסמן חשבון — פעולה שנכשלת, כי גם ה-RPC אינו קיים. פער
+  //    מוצהר חייב להצהיר על **הסיבה הנכונה**.
+  if (opts?.hasSchema === false) return { available: false, gap: 'no_schema', ...empty };
 
   const account = pickTransactionAccount(accounts);
   // 🔴 אין חשבון מסומן ⇒ מצהירים. המסך יציג «לא נבחר חשבון לתנועות».
@@ -813,8 +821,38 @@ export function buildBalanceTracking(
   return { ...base, available: true, expense, income, delta, current: anchor + delta, counted };
 }
 
+/**
+ * האם מיגרציה 0013 רצה.
+ *
+ * 🔴 נפרד מ-`hasNetWorthSchema`: 0010 יכולה לרוץ בלי 0013, וזה בדיוק המצב
+ *    בפרודקשן עד שהמיגרציה נמסרת. בלי ההבחנה הזו «אין חשבון מסומן»
+ *    ו«העמודה לא קיימת» נראים זהים, והמשתמש נשלח לפעולה שתיכשל.
+ */
+let trackingState: 'unknown' | 'present' | 'missing' = 'unknown';
+let trackingProbe: Promise<boolean> | null = null;
+
+function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  // ‏42703 = undefined_column · PGRST204 = לא נמצא ב-schema cache
+  if (error.code === '42703' || error.code === 'PGRST204') return true;
+  return /is_transaction_account/i.test(error.message ?? '');
+}
+
+export function hasTransactionAccountColumn(): Promise<boolean> {
+  if (trackingState !== 'unknown') return Promise.resolve(trackingState === 'present');
+  if (!trackingProbe) {
+    trackingProbe = (async () => {
+      const { error } = await supabase.from('accounts').select('is_transaction_account').limit(1);
+      trackingState = error && (isMissingColumn(error) || isMissingSchema(error)) ? 'missing' : 'present';
+      return trackingState === 'present';
+    })();
+  }
+  return trackingProbe;
+}
+
 /** חשבונות הבנק, עם הסימון של חשבון התנועות. */
 export async function listTrackedAccounts(householdId: string): Promise<TrackedAccount[]> {
+  if (!(await hasTransactionAccountColumn())) return [];
   try {
     return unwrap(
       await supabase

@@ -358,6 +358,15 @@ export default function Import() {
           userId: r.assignedTo ?? user.id,
           isShared: sharedAvailable && r.assignedTo === null,
         })),
+        // 🎯 האצווה היא מה שמאפשר את צפי העו"ש: היא נושאת את הסך, ודרכו
+        //    מותאמת שורת החיוב בדוח העו"ש לחשבון שממנו ירדה.
+        result
+          ? {
+              source: result.source,
+              statedTotalAgorot: result.statedTotal === null ? null : toAgorot(result.statedTotal),
+              parsedTotalAgorot: toAgorot(result.parsedTotal),
+            }
+          : undefined,
       );
 
       // לומדים רק קטגוריות שהמשתמש בחר בעצמו, כדי שהפעם הבאה תהיה מדויקת יותר

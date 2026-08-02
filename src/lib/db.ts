@@ -448,9 +448,16 @@ export async function addTransactionsBulk(
     note: string | null;
     isShared?: boolean;
   }[],
+  /**
+   * 🎯 אצוות הייבוא. בלעדיה אין דרך לדעת איזה חשבון מחויב, ולכן אין צפי
+   *    עו"ש — תנועה שייכת למשק בית, לא לחשבון. הסך נשמר כי הוא המפתח
+   *    להתאמה מול שורת החיוב בדוח העו"ש.
+   */
+  batch?: { source: string; statedTotalAgorot: number | null; parsedTotalAgorot: number },
 ): Promise<number> {
   if (!rows.length) return 0;
   const withShared = await hasSharedColumn();
+  const batchId = batch ? await createImportBatch(rows, batch) : null;
 
   const payload = rows.map((r) => {
     const row: Record<string, unknown> = {
@@ -463,6 +470,7 @@ export async function addTransactionsBulk(
       note: r.note,
     };
     if (withShared) row.is_shared = Boolean(r.isShared);
+    if (batchId) row.import_batch_id = batchId;
     return row;
   });
 
@@ -489,6 +497,42 @@ export async function addTransactionsBulk(
     );
   }
   return inserted.length;
+}
+
+/**
+ * יוצר את שורת האצווה. נכשל בשקט על סכימה ישנה — הייבוא עצמו חשוב יותר
+ * מהצפי, ואצווה חסרה פשוט אומרת «אין צפי», שזו ההתנהגות הנכונה ממילא.
+ *
+ * 🪤 `institution` נגזר מ-`source` שהפרסר הצהיר. הוא **ניתן לעריכה** —
+ *    הנרמול הוא ברירת מחדל, לא גזירת גורל.
+ */
+async function createImportBatch(
+  rows: { householdId: string; userId: string; occurredOn: string }[],
+  batch: { source: string; statedTotalAgorot: number | null; parsedTotalAgorot: number },
+): Promise<string | null> {
+  const dates = rows.map((r) => r.occurredOn).filter(Boolean).sort();
+  try {
+    const { data, error } = await supabase
+      .from('import_batches')
+      .insert({
+        household_id: rows[0].householdId,
+        kind: 'credit',
+        source: batch.source,
+        institution: batch.source,
+        stated_total_agorot: batch.statedTotalAgorot,
+        parsed_total_agorot: batch.parsedTotalAgorot,
+        row_count: rows.length,
+        occurred_from: dates[0] ?? null,
+        occurred_to: dates[dates.length - 1] ?? null,
+        created_by: rows[0].userId,
+      })
+      .select('id')
+      .single();
+    if (error) return null;
+    return (data as { id: string } | null)?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── יעדים ───────────────────────────────────────────────────────────────────

@@ -555,3 +555,246 @@ export async function deletePendingAllocation(id: string): Promise<void> {
   const { error } = await supabase.from('pending_allocations').delete().eq('id', id);
   if (error) throw new Error(error.message);
 }
+
+// ── צפי העו"ש (החלטה 13) ───────────────────────────────────────────────────
+
+export interface ImportBatch {
+  id: string;
+  household_id: string;
+  kind: 'credit' | 'bank';
+  source: string;
+  institution: string | null;
+  account_id: string | null;
+  stated_total_agorot: number | null;
+  parsed_total_agorot: number;
+  row_count: number;
+  occurred_from: string | null;
+  occurred_to: string | null;
+  debited_on: string | null;
+  imported_at: string;
+}
+
+export interface ForecastCharge {
+  id: string;
+  source: string;
+  amount: number;
+}
+
+export type ForecastReason = 'ok' | 'no_institution' | 'no_charges';
+
+export interface Forecast {
+  /** האם מותר להציג צפי בכלל. false ⇒ מציגים יתרה ומצהירים למה. */
+  available: boolean;
+  reason: ForecastReason;
+  balance: number;
+  /** תאריך היתרה — «עוגן עם התאריך שלו», לא רק מספר */
+  capturedAt: string | null;
+  forecast: number;
+  /** חיובים שטרם ירדו — הם שמנוכים */
+  pending: ForecastCharge[];
+  /** חיובים שכבר ירדו ולכן כבר בתוך היתרה */
+  settled: ForecastCharge[];
+  /**
+   * 🔴 אצוות שלא ניתן היה לשייך לחשבון. הן **מוצהרות ואינן מנוכות**.
+   *    ניכוי שלהן היה מייצר בדיוק את הצפי השגוי-לצמיתות.
+   */
+  unattributed: ForecastCharge[];
+}
+
+/**
+ * בונה את צפי העו"ש לחשבון אחד.
+ *
+ *     צפי = יתרה − חיובים שטרם ירדו
+ *
+ * 🔴 **ההתאמה מוגבלת לאותו מוסד, ובהיעדר מוסד אין צפי כלל.**
+ *    למשתמש שני בנקים: כרטיס הפועלים מחויב בחשבון אחד, ודוח העו"ש
+ *    שברשותנו הוא של הבינלאומי. התאמה גלובלית הייתה מסמנת את חיובי
+ *    הפועלים «טרם ירדו» **לצמיתות** — צפי שגוי בקביעות, בלי שום שגיאה.
+ *
+ * 🔴 **אצווה שלא שויכה אינה מנוכה.** היא מוצהרת ב-`unattributed` כדי
+ *    שהמשתמש יראה שהמספר חלקי, במקום שהמערכת תנחש עבורו.
+ *
+ * 🪤 אצווה נחשבת «ירדה» אם יש לה `debited_on`, **או** אם היא קדמה לתאריך
+ *    היתרה — יתרה שנלקחה אחרי החיוב כבר מכילה אותו. אי אפשר להישען על
+ *    «חיוב בתאריך» שבקובץ: הפועלים אינו מצהיר עליו כלל.
+ */
+export function buildForecast(
+  account: { id: string; institution?: string | null; balance_agorot: number; captured_at?: string | null },
+  batches: ImportBatch[],
+): Forecast {
+  const balance = Number(account.balance_agorot ?? 0) || 0;
+  const capturedAt = account.captured_at ?? null;
+  const base: Forecast = {
+    available: false,
+    reason: 'no_institution',
+    balance,
+    capturedAt,
+    forecast: balance,
+    pending: [],
+    settled: [],
+    unattributed: [],
+  };
+
+  const institution = norm(account.institution);
+  const credit = batches.filter((b) => b.kind === 'credit');
+
+  // 🔴 בלי מוסד אין למה להשוות, ולכן אין צפי — מצהירים.
+  if (!institution) {
+    base.unattributed = credit.filter((b) => b.debited_on === null).map(toCharge);
+    return base;
+  }
+
+  const pending: ForecastCharge[] = [];
+  const settled: ForecastCharge[] = [];
+  const unattributed: ForecastCharge[] = [];
+
+  for (const b of credit) {
+    const amount = Number(b.parsed_total_agorot ?? 0) || 0;
+    if (amount <= 0) continue;
+    const charge = toCharge(b);
+
+    // שיוך מפורש לחשבון אחר — לא שלנו
+    if (b.account_id !== null && b.account_id !== account.id) continue;
+
+    const sameInstitution = norm(b.institution) === institution;
+    if (b.account_id === null && !sameInstitution) {
+      // 🔴 מוסד אחר או לא ידוע ⇒ מצהירים ולא מנכים
+      if (b.debited_on === null) unattributed.push(charge);
+      continue;
+    }
+
+    if (b.debited_on !== null) {
+      settled.push(charge);
+      continue;
+    }
+    // יתרה שנלקחה אחרי תקופת הדוח כבר מכילה את החיוב
+    if (capturedAt && b.occurred_to && b.occurred_to < capturedAt.slice(0, 10)) {
+      settled.push(charge);
+      continue;
+    }
+    pending.push(charge);
+  }
+
+  const totalPending = pending.reduce((s, c) => s + c.amount, 0);
+  return {
+    available: pending.length > 0 || settled.length > 0,
+    reason: pending.length || settled.length ? 'ok' : 'no_charges',
+    balance,
+    capturedAt,
+    forecast: balance - totalPending,
+    pending,
+    settled,
+    unattributed,
+  };
+}
+
+function toCharge(b: ImportBatch): ForecastCharge {
+  return { id: b.id, source: b.source, amount: Number(b.parsed_total_agorot ?? 0) || 0 };
+}
+
+function norm(v: string | null | undefined): string {
+  return String(v ?? '').trim().toLowerCase();
+}
+
+export async function listImportBatches(householdId: string): Promise<ImportBatch[]> {  try {
+    return unwrap(
+      await supabase
+        .from('import_batches')
+        .select('*')
+        .eq('household_id', householdId)
+        .order('imported_at', { ascending: false }),
+    ) as unknown as ImportBatch[];
+  } catch {
+    // סכימה ישנה: אין אצוות ⇒ אין צפי, ולא קריסה
+    return [];
+  }
+}
+export interface ForecastAccount {
+  id: string;
+  institution?: string | null;
+  balance_agorot: number;
+  captured_at?: string | null;
+}
+
+export interface ForecastSummary {
+  /** האם יש בכלל מה להציג כצפי */
+  available: boolean;
+  /** סך החיובים שטרם ירדו — זה מה שמנוכה מההון */
+  pendingTotal: number;
+  pending: ForecastCharge[];
+  /**
+   * 🔴 אצוות שלא ניתן לשייך לאף חשבון. **מוצהרות ואינן מנוכות.**
+   *    זה ההבדל בין «אין דוח» לבין הערכה שגויה לצמיתות.
+   */
+  unattributed: ForecastCharge[];
+}
+
+/**
+ * מסכם את הצפי על פני כל חשבונות הבנק.
+ *
+ * 🪤 אצווה נספרת **פעם אחת בלבד** גם אם שני חשבונות באותו מוסד — אחרת
+ *    אותו חיוב היה מנוכה פעמיים וההון היה קטן בכפליים, בשקט.
+ */
+export function buildForecastSummary(
+  accounts: ForecastAccount[],
+  batches: ImportBatch[],
+): ForecastSummary {
+  const pending: ForecastCharge[] = [];
+  const seen = new Set<string>();
+  let pendingTotal = 0;
+
+  for (const account of accounts) {
+    const f = buildForecast(account, batches);
+    if (!f.available) continue;
+    for (const c of f.pending) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id);
+      pending.push(c);
+      pendingTotal += c.amount;
+    }
+    for (const c of f.settled) seen.add(c.id);
+  }
+
+  const unattributed: ForecastCharge[] = [];
+  for (const b of batches) {
+    if (b.kind !== 'credit' || b.debited_on !== null || seen.has(b.id)) continue;
+    const amount = Number(b.parsed_total_agorot ?? 0) || 0;
+    if (amount <= 0) continue;
+    unattributed.push({ id: b.id, source: b.source, amount });
+  }
+
+  return { available: pending.length > 0, pendingTotal, pending, unattributed };
+}
+/**
+ * חשבונות הבנק עם המוסד שלהם. נשלף ישירות מ-`accounts` ולא מה-view,
+ * כדי לא לגעת ב-`net_worth_by_account` שכבר אומת שלוש פעמים.
+ */
+export async function listForecastAccounts(householdId: string): Promise<ForecastAccount[]> {
+  try {
+    return unwrap(
+      await supabase
+        .from('accounts')
+        .select('id, institution, balance_agorot, captured_at')
+        .eq('household_id', householdId)
+        .eq('is_archived', false)
+        .eq('kind', 'bank'),
+    ) as unknown as ForecastAccount[];
+  } catch {
+    return [];
+  }
+}
+/**
+ * תאריך היתרה כמחרוזת קצרה. החלטה 13 דורשת **תאריך**, לא «לפני N ימים» —
+ * «עוגן עם התאריך שלו».
+ *
+ * 🪤 מקומי בכוונה, כמו `toISODate`. ‏`toISOString` מזיז יום אחורה לכל
+ *    מי שנמצא ממזרח ל-UTC, וישראל שם.
+ */
+export function formatCapturedAt(capturedAt: string | null): string {
+  if (!capturedAt) return '';
+  const d = new Date(capturedAt);
+  if (!Number.isFinite(d.getTime())) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  return `${dd}.${mm}.${d.getFullYear()}`;
+}

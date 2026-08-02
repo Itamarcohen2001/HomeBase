@@ -64,6 +64,8 @@ export default function NetWorth() {
   const [amount, setAmount] = useState('');
   const [overdrawn, setOverdrawn] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [tracked, setTracked] = useState<nw.TrackedAccount[]>([]);
+  const [txns, setTxns] = useState<nw.TrackedTransaction[]>([]);
 
   const load = useCallback(async () => {
     if (!householdId) return;
@@ -83,6 +85,13 @@ export default function NetWorth() {
       } catch {
         setClasses([]);
       }
+
+      // 🎯 החלטה 18: היתרה נצברת מהעוגן. שולפים את החשבונות עם הסימון,
+      //    ואת התנועות **רק מאז העוגן** — משק בית ותיק צובר אלפים.
+      const accts = await nw.listTrackedAccounts(householdId);
+      setTracked(accts);
+      const from = nw.anchorDate(nw.pickTransactionAccount(accts)?.captured_at);
+      setTxns(from ? await nw.listTransactionsAfter(householdId, from) : []);
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון את החשבונות') });
     } finally {
@@ -111,6 +120,12 @@ export default function NetWorth() {
     }, null);
     return { total, unpriced, fromReport, oldest };
   }, [rows]);
+
+  /**
+   * 🎯 החלטה 18: היתרה **נצברת** מהעוגן במקום להיות צילום שתקוע.
+   *    הלוגיקה יושבת ב-`networth.ts` כדי שתהיה ניתנת למדידה בלי מסך.
+   */
+  const tracking = useMemo(() => nw.buildBalanceTracking(tracked, txns), [tracked, txns]);
 
   /**
    * פרוסות ההתפלגות. הלוגיקה יושבת ב-`networth.ts` כדי שתהיה ניתנת
@@ -222,8 +237,20 @@ export default function NetWorth() {
       <Card testID="hb-networth-total">
         <Muted>סך הכול</Muted>
         <H1 testID="hb-networth-total-amount" style={{ marginTop: spacing.xs }}>
-          {formatMoney(totals.total)}
+          {formatMoney(totals.total + tracking.delta)}
         </H1>
+
+        {/* 🎯 החלטה 18: העוגן מוצג **עם התאריך שלו**, לא כמספר יתום.
+            «מצב התחלתי ומשם עוקבים» — ולכן צריך לראות מאיפה מתחילים. */}
+        {tracking.available && tracking.delta !== 0 ? (
+          <Body testID="hb-networth-anchor" style={{ marginTop: spacing.xs, fontSize: 13 }}>
+            {`לפי היתרה ${formatMoney(tracking.anchor)}${
+              tracking.anchorDate ? ` מ-${nw.formatCapturedAt(tracking.anchorDate)}` : ''
+            }, ${tracking.delta < 0 ? 'פחות' : 'ועוד'} ${formatMoney(Math.abs(tracking.delta))} ${
+              tracking.delta < 0 ? 'שיצאו' : 'שנכנסו'
+            } מאז`}
+          </Body>
+        ) : null}
 
         <View style={{ ...rtlRow, gap: spacing.sm, flexWrap: 'wrap', marginTop: spacing.sm }}>
           <Badge icon="time-outline" color={nw.isStale(totals.oldest) ? colors.warning : colors.textMuted}>
@@ -240,6 +267,21 @@ export default function NetWorth() {
             </Badge>
           ) : null}
         </View>
+
+        {/* 🔴 אין חשבון מסומן ⇒ **מצהירים**. בחירה שרירותית של החשבון
+            הראשון הייתה מייצרת מספר שנראה תקין ומחושב על החשבון הלא נכון. */}
+        {tracking.gap === 'no_transaction_account' && rows.length > 0 ? (
+          <Muted testID="hb-networth-no-tx-account" style={{ marginTop: spacing.md, fontSize: 12 }}>
+            לא נבחר חשבון לתנועות, ולכן הסכום מציג את היתרה שהוקלדה בלי התנועות שנרשמו מאז. פתחו
+            חשבון עו"ש וסמנו אותו כחשבון התנועות.
+          </Muted>
+        ) : null}
+
+        {tracking.gap === 'no_anchor_date' ? (
+          <Muted testID="hb-networth-no-anchor" style={{ marginTop: spacing.md, fontSize: 12 }}>
+            {`לחשבון «${tracking.accountName}» אין תאריך יתרה, ולכן אי אפשר לדעת מאיזו נקודה לצבור. עדכנו את היתרה כדי להתחיל מעקב.`}
+          </Muted>
+        ) : null}
 
         {totals.unpriced > 0 ? (
           <Muted testID="hb-networth-gap" style={{ marginTop: spacing.md, fontSize: 12 }}>
@@ -325,7 +367,12 @@ export default function NetWorth() {
         <View key={group.kind}>
           <SectionTitle>{nw.ACCOUNT_KIND_LABEL[group.kind]}</SectionTitle>
           {group.items.map((row) => (
-            <AccountRow key={row.account_id} row={row} onPress={() => router.push(`/account/${row.account_id}` as never)} />
+            <AccountRow
+              key={row.account_id}
+              row={row}
+              isTransactionAccount={row.account_id === tracking.accountId}
+              onPress={() => router.push(`/account/${row.account_id}` as never)}
+            />
           ))}
         </View>
       ))}
@@ -437,7 +484,15 @@ export default function NetWorth() {
   );
 }
 
-function AccountRow({ row, onPress }: { row: nw.AccountValue; onPress: () => void }) {
+function AccountRow({
+  row,
+  isTransactionAccount,
+  onPress,
+}: {
+  row: nw.AccountValue;
+  isTransactionAccount: boolean;
+  onPress: () => void;
+}) {
   const meta = KIND_ICON[row.kind] ?? KIND_ICON.bank;
   const holdings = Number(row.holdings_agorot ?? 0);
   const balance = Number(row.balance_agorot ?? 0);
@@ -461,6 +516,13 @@ function AccountRow({ row, onPress }: { row: nw.AccountValue; onPress: () => voi
                 ? `${formatMoney(balance)} מזומן · ${formatMoney(holdings)} ניירות`
                 : nw.stalenessLabel(row.captured_at)}
             </Muted>
+            {isTransactionAccount ? (
+              <View testID={`hb-account-txmark-${row.account_id}`} style={{ ...rtlRow }}>
+                <Badge icon="swap-horizontal-outline" color={colors.primary}>
+                  חשבון התנועות
+                </Badge>
+              </View>
+            ) : null}
           </View>
         </View>
         <View style={{ alignItems: 'flex-start' }}>

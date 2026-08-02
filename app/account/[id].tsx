@@ -56,6 +56,7 @@ export default function AccountDetail() {
   const [balance, setBalance] = useState('');
   const [overdrawn, setOverdrawn] = useState(false);
   const [savingBalance, setSavingBalance] = useState(false);
+  const [marking, setMarking] = useState(false);
 
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<nw.CatalogResult[]>([]);
@@ -100,6 +101,8 @@ export default function AccountDetail() {
   );
   const unpriced = useMemo(() => holdings.filter((h) => h.value_agorot === null).length, [holdings]);
 
+  const isTxAccount = Boolean(account?.is_transaction_account);
+
   const selectedCount = useMemo(() => selected.filter(Boolean).length, [selected]);
   const selectedTotal = useMemo(
     () => (pending ? pending.holdings.reduce((s, h, i) => (selected[i] ? s + h.statedValue : s), 0) : 0),
@@ -114,11 +117,41 @@ export default function AccountDetail() {
       const magnitude = shekelsToAgorot(balance || '0');
       await nw.updateAccountBalance(account.id, overdrawn ? -magnitude : magnitude);
       await load();
-      setMessage({ tone: 'success', text: 'היתרה עודכנה' });
+      // 🎯 החלטה 18: הקלדה ידנית היא **תיקון עוגן** — היא מציבה captured_at
+      //    חדש, ולכן הצבירה מתחילה מכאן ומה שנצבר עד עכשיו כבר בתוך המספר.
+      setMessage({
+        tone: 'success',
+        text: isTxAccount
+          ? 'היתרה עודכנה. מכאן נמשיך לעקוב לפי התנועות שתרשמו.'
+          : 'היתרה עודכנה',
+      });
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לעדכן את היתרה') });
     } finally {
       setSavingBalance(false);
+    }
+  }
+
+  /**
+   * 🔴 סימון חשבון התנועות. **החלפה, לא הוספה** — הפונקציה בשרת מבטלת את
+   *    הקודם באותה טרנזקציה, אחרת האינדקס החלקי היה מחזיר שגיאה סתומה.
+   */
+  async function onSetTransactionAccount(next: boolean) {
+    if (!account || marking) return;
+    setMarking(true);
+    setMessage(null);
+    try {
+      if (next) await nw.setTransactionAccount(account.id);
+      else await nw.clearTransactionAccount(account.id);
+      await load();
+      setMessage({
+        tone: 'success',
+        text: next ? 'החשבון סומן כחשבון התנועות' : 'הסימון בוטל. התנועות לא יעדכנו אף חשבון.',
+      });
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לסמן את החשבון') });
+    } finally {
+      setMarking(false);
     }
   }
 
@@ -503,6 +536,25 @@ export default function AccountDetail() {
           style={{ marginTop: spacing.md }}
         />
       </Card>
+
+      {/* 🎯 החלטה 19: חשבון אחד אחראי על התנועות, והמשתמש בוחר אותו.
+          «יש לי כמה חשבונות עו"ש, ואני אסמן אחד כאחראי על התנועות». */}
+      {account.kind === 'bank' ? (
+        <Card>
+          <Checkbox
+            value={isTxAccount}
+            onValueChange={(v) => void onSetTransactionAccount(v)}
+            label="חשבון התנועות"
+            accessibilityLabel="חשבון התנועות"
+            testID="hb-account-transaction-account"
+          />
+          <Muted testID="hb-account-transaction-hint" style={{ marginTop: spacing.sm, fontSize: 12 }}>
+            {isTxAccount
+              ? 'כל ההוצאות וההכנסות שנרשמות באפליקציה יורדות מהחשבון הזה, והיתרה מתעדכנת לפיהן מאליה. הקלדת יתרה חדשה מאפסת את הספירה ומתחילה מחדש.'
+              : 'סימון החשבון הזה יגרום לכל ההוצאות וההכנסות שנרשמות באפליקציה להתעדכן ביתרה שלו. אפשר לסמן חשבון אחד בלבד — הסימון הקודם יבוטל.'}
+          </Muted>
+        </Card>
+      ) : null}
 
       <SectionTitle>ניירות ערך</SectionTitle>
 

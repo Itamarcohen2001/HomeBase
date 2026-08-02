@@ -15,11 +15,12 @@ export interface Account {
   household_id: string;
   name: string;
   kind: AccountKind;
-  institution: string | null;
   currency: string;
   balance_agorot: number;
   captured_at: string;
   is_archived: boolean;
+  /** 🎯 החלטה 19: החשבון שכל התנועות יורדות ממנו. אחד לכל משק בית. */
+  is_transaction_account?: boolean | null;
 }
 
 export interface AccountValue {
@@ -134,7 +135,6 @@ export async function addAccount(input: {
   userId: string;
   name: string;
   kind: AccountKind;
-  institution?: string | null;
   balanceAgorot: number;
 }): Promise<Account> {
   return unwrap(
@@ -145,7 +145,6 @@ export async function addAccount(input: {
         created_by: input.userId,
         name: input.name,
         kind: input.kind,
-        institution: input.institution ?? null,
         balance_agorot: input.balanceAgorot,
         captured_at: new Date().toISOString(),
       })
@@ -154,7 +153,12 @@ export async function addAccount(input: {
   ) as unknown as Account;
 }
 
-/** עדכון יתרה ידני. `captured_at` מתעדכן תמיד, כי ממנו נגזר חיווי ההתיישנות. */
+/**
+ * עדכון יתרה ידני.
+ *
+ * 🎯 החלטה 18: זה **תיקון עוגן**. ‏`captured_at` מתעדכן, ולכן הצבירה של
+ *    התנועות מתחילה מכאן מחדש — «אני יודע שעכשיו יש 18,785, תמשיך מכאן».
+ */
 export async function updateAccountBalance(id: string, balanceAgorot: number): Promise<void> {
   unwrap(
     await supabase
@@ -556,9 +560,7 @@ export async function deletePendingAllocation(id: string): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
-// ── צפי העו"ש (החלטה 13) ───────────────────────────────────────────────────
-
-// ═══ צפי העו"ש (החלטה 13) ═══════════════════════════════════════════════════
+// ═══ מעקב יתרה (החלטות 18+19) ═══════════════════════════════════════════════
 
 export type BatchKind = 'bank_statement' | 'credit_report';
 export type RefKind = 'account' | 'card';
@@ -593,9 +595,10 @@ export interface BatchCharge {
 }
 
 /**
- * תאריך היתרה כמחרוזת קצרה. החלטה 13 דורשת **תאריך**, לא «לפני N ימים».
+ * תאריך היתרה כמחרוזת קצרה. החלטה 18 דורשת **תאריך**, לא «לפני N ימים» —
+ * העוגן מוצג עם התאריך שלו.
  *
- * 🪤 מקומי בכוונה, כמו 	oISODate. 	oISOString מזיז יום אחורה לכל מי
+ * 🪤 מקומי בכוונה, כמו `toISODate`. `toISOString` מזיז יום אחורה לכל מי
  *    שנמצא ממזרח ל-UTC, וישראל שם.
  */
 export function formatCapturedAt(capturedAt: string | null): string {
@@ -657,4 +660,217 @@ export async function listBankAccounts(householdId: string): Promise<BankAccount
   } catch {
     return [];
   }
+}
+
+// ═══ מעקב יתרה: העוגן והצבירה (החלטות 18+19) ════════════════════════════════
+
+/**
+ * 🔴 **הגבול: תנועה בדיוק בתאריך העוגן אינה נספרת.** ההשוואה היא `>`,
+ *    לא `>=`, ו**זו החלטה מוצהרת ולא תוצר לוואי**:
+ *
+ *    · המשתמש עצמו ניסח «אני מכניס את **המצב ההתחלתי** ו**משם** אתה עוקב».
+ *      «משם» = אחרי.
+ *    · ‏`occurred_on` הוא `date` בלי שעה, ואילו `captured_at` הוא
+ *      `timestamptz`. לתנועה מאותו יום **אין** דרך לדעת אם קדמה לקריאת
+ *      היתרה או באה אחריה — המידע פשוט לא קיים.
+ *    · ומבין שתי הטעויות האפשריות, ספירה כפולה גרועה יותר מהשמטה:
+ *      היתרה שהמשתמש מקליד נקראה מאפליקציית הבנק ולכן כבר מכילה את מה
+ *      שירד באותו יום. ‏`>=` היה מנכה אותו שוב.
+ */
+export const ANCHOR_BOUNDARY = 'exclusive' as const;
+
+export interface TrackedAccount {
+  id: string;
+  name: string;
+  balance_agorot: number;
+  captured_at?: string | null;
+  is_transaction_account?: boolean | null;
+}
+
+/** תנועה כפי שהיא ב-DB: הסכום תמיד חיובי, והכיוון יושב ב-`kind`. */
+export interface TrackedTransaction {
+  kind: 'expense' | 'income';
+  amount_agorot: number;
+  /** yyyy-mm-dd */
+  occurred_on: string;
+}
+
+export type TrackingGap = 'no_transaction_account' | 'no_anchor_date';
+
+export interface BalanceTracking {
+  /** האם יש מעקב. `false` ⇒ **מצהירים**, לא מנחשים ולא בוחרים חשבון. */
+  available: boolean;
+  gap?: TrackingGap;
+  accountId: string | null;
+  accountName: string;
+  /** היתרה שהוקלדה — נקודת המוצא */
+  anchor: number;
+  /** yyyy-mm-dd מקומי של העוגן */
+  anchorDate: string | null;
+  expense: number;
+  income: number;
+  /** ‏`income − expense` */
+  delta: number;
+  /** ‏`anchor + delta` — היתרה הנוכחית */
+  current: number;
+  /** כמה תנועות נספרו. ‏0 עם `available` אומר «אין תנועות מאז», לא תקלה. */
+  counted: number;
+}
+
+/**
+ * התאריך המקומי של העוגן.
+ *
+ * 🪤 **לא `toISOString().slice(0,10)`.** ישראל היא UTC+2/+3, ולכן עוגן
+ *    שנקבע ב-01:00 היה מוצג ומושווה כיום הקודם — והשוואת הגבול הייתה
+ *    סופרת יום שלם של תנועות פעמיים.
+ */
+export function anchorDate(capturedAt: string | null | undefined): string | null {
+  if (!capturedAt) return null;
+  const d = new Date(capturedAt);
+  if (!Number.isFinite(d.getTime())) return null;
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+
+/**
+ * החשבון שסומן כאחראי על התנועות.
+ *
+ * 🔴 מחזיר `null` כשאין סימון — **לא** את החשבון הראשון. למשתמש יש כמה
+ *    חשבונות עו"ש; בחירה שרירותית הייתה מייצרת מספר שנראה תקין ומחושב
+ *    על החשבון הלא נכון, בלי שום סימן.
+ */
+export function pickTransactionAccount<T extends { is_transaction_account?: boolean | null }>(
+  accounts: T[],
+): T | null {
+  return accounts.find((a) => Boolean(a.is_transaction_account)) ?? null;
+}
+
+/**
+ * מעקב יתרה אמיתי (החלטה 18).
+ *
+ *     יתרה נוכחית = balance_agorot  (בעוגן captured_at)
+ *                 − Σ expense  שאחרי captured_at
+ *                 + Σ income   שאחרי captured_at
+ *
+ * 🔴 **הסימן נגזר מ-`kind`, לעולם לא מהסכום.** נמדד ב-`0001_schema.sql`:
+ *    ‏`amount_agorot bigint not null check (amount_agorot > 0)`. כל
+ *    ניסיון לקרוא כיוון מהסכום היה נותן «כל התנועות הן הכנסה».
+ *
+ * 🎯 **הקלדה ידנית היא תיקון עוגן**, לא חובה תקופתית: היא מציבה
+ *    `captured_at` חדש, ולכן הצבירה מתחילה מאפס («אני יודע שעכשיו יש
+ *    18,785 — תמשיך מכאן»).
+ */
+export function buildBalanceTracking(
+  accounts: TrackedAccount[],
+  transactions: TrackedTransaction[],
+): BalanceTracking {
+  const empty = {
+    accountId: null,
+    accountName: '',
+    anchor: 0,
+    anchorDate: null,
+    expense: 0,
+    income: 0,
+    delta: 0,
+    current: 0,
+    counted: 0,
+  };
+
+  const account = pickTransactionAccount(accounts);
+  // 🔴 אין חשבון מסומן ⇒ מצהירים. המסך יציג «לא נבחר חשבון לתנועות».
+  if (!account) return { available: false, gap: 'no_transaction_account', ...empty };
+
+  const anchor = Number(account.balance_agorot ?? 0) || 0;
+  const from = anchorDate(account.captured_at);
+  const base = {
+    ...empty,
+    accountId: account.id,
+    accountName: account.name ?? '',
+    anchor,
+    anchorDate: from,
+    current: anchor,
+  };
+
+  // אין תאריך עוגן ⇒ אין ממה לצבור. מציגים את היתרה כמות שהיא ומצהירים.
+  if (!from) return { available: false, gap: 'no_anchor_date', ...base };
+
+  let expense = 0;
+  let income = 0;
+  let counted = 0;
+  for (const t of transactions) {
+    // 🔴 `>` ולא `>=` — ראו ANCHOR_BOUNDARY
+    if (!t.occurred_on || t.occurred_on <= from) continue;
+    const amount = Math.abs(Number(t.amount_agorot ?? 0)) || 0;
+    if (!amount) continue;
+    if (t.kind === 'income') income += amount;
+    else if (t.kind === 'expense') expense += amount;
+    else continue;
+    counted += 1;
+  }
+
+  const delta = income - expense;
+  return { ...base, available: true, expense, income, delta, current: anchor + delta, counted };
+}
+
+/** חשבונות הבנק, עם הסימון של חשבון התנועות. */
+export async function listTrackedAccounts(householdId: string): Promise<TrackedAccount[]> {
+  try {
+    return unwrap(
+      await supabase
+        .from('accounts')
+        .select('id, name, balance_agorot, captured_at, is_transaction_account')
+        .eq('household_id', householdId)
+        .eq('is_archived', false)
+        .eq('kind', 'bank'),
+    ) as unknown as TrackedAccount[];
+  } catch {
+    // סכימה בלי 0013 ⇒ אין מעקב, ולא קריסה
+    return [];
+  }
+}
+
+/**
+ * התנועות שאחרי העוגן.
+ *
+ * 🎯 נשלפות מהשרת עם הסינון, ולא מסוננות בלקוח: משק בית ותיק צובר
+ *    אלפי תנועות, והעוגן חותך אותן לימים ספורים.
+ */
+export async function listTransactionsAfter(
+  householdId: string,
+  from: string,
+): Promise<TrackedTransaction[]> {
+  try {
+    return unwrap(
+      await supabase
+        .from('transactions')
+        .select('kind, amount_agorot, occurred_on')
+        .eq('household_id', householdId)
+        .gt('occurred_on', from),
+    ) as unknown as TrackedTransaction[];
+  } catch {
+    return [];
+  }
+}
+
+/** מסמן חשבון כאחראי על התנועות ומבטל את הקודם באותה טרנזקציה. */
+export async function setTransactionAccount(accountId: string): Promise<void> {
+  const { error } = await supabase.rpc('set_transaction_account', { p_account: accountId });
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * מבטל את הסימון.
+ *
+ * 🎯 מותר, ומכוון: אחריו המסך **מצהיר** «לא נבחר חשבון לתנועות» ומציג
+ *    את היתרה שהוקלדה בלבד. עדיף על מעקב שרץ על החשבון הלא נכון.
+ */
+export async function clearTransactionAccount(accountId: string): Promise<void> {
+  unwrap(
+    await supabase
+      .from('accounts')
+      .update({ is_transaction_account: false })
+      .eq('id', accountId)
+      .select('id'),
+  );
 }

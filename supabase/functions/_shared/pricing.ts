@@ -6,6 +6,9 @@
 
 export type PriceFeed = 'tase_security' | 'tase_fund' | 'yahoo';
 
+/** מחלקת נכס לגרף ההתפלגות. `checking` ו-`pending` אינם ניירות ולכן אינם כאן. */
+export type AssetClass = 'equity' | 'money_market' | 'bond' | 'cash' | 'other';
+
 export interface SecurityRef {
   external_id: string;
   price_feed: PriceFeed;
@@ -226,6 +229,40 @@ export interface CatalogEntry {
   symbol: string | null;
   isin: string | null;
   category: string | null;
+  asset_class: AssetClass;
+}
+
+/**
+ * סיווג לגרף ההתפלגות — **ברירת מחדל בלבד**, ניתן לעריכה ידנית.
+ *
+ * המשתמש ביקש ארבע פרוסות: שוק ההון · קרן כספית/פק"מ · מזומן · עו"ש.
+ * שתי האחרונות נגזרות מ-`accounts.kind` ולא מכאן. לכן הסיווג האוטומטי
+ * מכריע בין `money_market` ל-`equity` בלבד.
+ *
+ * 🔴 `bond` הוא ערך חוקי בסכימה לעריכה ידנית, אך **לא מוקצה אוטומטית**.
+ *    מדדתי היוריסטיקת-שם על הקטלוג המלא: היא סיווגה 1,259 ניירות, ומדגם
+ *    בן 49 חשף 9 קרנות אג"ח מובהקות שהיא מפספסת (`מדינה`, `מדורג`,
+ *    `חברות` בלי המילה אג"ח). פרוסה חמישית שגויה חלקית גרועה מהיעדרה.
+ *
+ * 🔴 `פקדון` הוא טוקן אסור. הוא שם של אג"ח קונצרנית (`אביעד פקדון אגח א`)
+ *    ולא קרן כספית; הכללתו הוסיפה 41 חיובי-שגוי במדידת הרכז. אותו דבר
+ *    ל-`פק"מ` שמופיע בתוך שמות אג"ח — ולכן הבדיקה מותנית ב-`Type=4`
+ *    (קרן נאמנות) ואינה רצה על סחירים כלל.
+ *
+ * 🪤 צמד מט"ח (`USDILS=X`) הוא **מזומן**, לא נייר — הפרסר מייצר אותו
+ *    לשורות יתרת מזומן במטבע חוץ.
+ */
+const MONEY_MARKET = /כספית|מק["׳']?מ(\s|$)/;
+
+export function classifyAsset(entry: {
+  price_feed: PriceFeed;
+  name: string;
+  external_id: string;
+  category?: string | null;
+}): AssetClass {
+  if (/^[A-Z]{3}[A-Z]{3}=X$/.test(entry.external_id)) return 'cash';
+  if (entry.price_feed === 'tase_fund' && MONEY_MARKET.test(entry.name)) return 'money_market';
+  return 'equity';
 }
 
 /**
@@ -237,10 +274,12 @@ export function catalogToEntry(item: CatalogItem): CatalogEntry | null {
   if (item.Type !== 1 && item.Type !== 4) return null;
   const id = String(item.Id ?? '').trim();
   if (!id) return null;
+  const price_feed: PriceFeed = item.Type === 1 ? 'tase_security' : 'tase_fund';
+  const name = String(item.Name ?? '').trim();
   return {
     external_id: id,
-    price_feed: item.Type === 1 ? 'tase_security' : 'tase_fund',
-    name: String(item.Name ?? '').trim(),
+    price_feed,
+    name,
     symbol: item.Smb ? String(item.Smb).trim() : null,
     isin: item.ISIN ? String(item.ISIN).trim() : null,
     category: item.SubTypeDesc
@@ -248,6 +287,7 @@ export function catalogToEntry(item: CatalogItem): CatalogEntry | null {
       : item.Type === 4
         ? 'קרן נאמנות'
         : null,
+    asset_class: classifyAsset({ price_feed, name, external_id: id }),
   };
 }
 

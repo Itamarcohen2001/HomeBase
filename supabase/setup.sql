@@ -60,6 +60,9 @@ create table if not exists public.categories (
   kind text not null default 'expense' check (kind in ('expense', 'income')),
   sort_order int not null default 100,
   is_archived boolean not null default false,
+  -- תנועת הון: הכסף עובר בין חשבונות ולא נצרך. מקטין את צפי העו"ש, לא את ההון.
+  -- 🔴 הקוד בודק את הדגל ולא את שם הקטגוריה — המשתמש יכול לשנות שם.
+  is_capital_move boolean not null default false,
   created_at timestamptz not null default now()
 );
 create index if not exists categories_household_idx on public.categories (household_id);
@@ -318,28 +321,29 @@ security definer
 set search_path = public
 as $$
 begin
-  insert into public.categories (household_id, name, icon, color, kind, sort_order)
+  insert into public.categories (household_id, name, icon, color, kind, sort_order, is_capital_move)
   values
-    (hid, 'סופר ומכולת',     'cart',              '#2E9E6B', 'expense', 10),
-    (hid, 'מסעדות וקפה',     'restaurant',        '#E4894F', 'expense', 20),
-    (hid, 'דיור ושכירות',    'home',              '#4F7FE4', 'expense', 30),
-    (hid, 'חשבונות בית',     'flash',             '#F2C14E', 'expense', 40),
-    (hid, 'תחבורה ודלק',     'car',               '#5BC0BE', 'expense', 50),
-    (hid, 'בריאות ותרופות',  'medkit',            '#E4646C', 'expense', 60),
-    (hid, 'ילדים וחינוך',    'happy',             '#9B6BDF', 'expense', 70),
-    (hid, 'ביגוד והנעלה',    'shirt',             '#DE7AA8', 'expense', 80),
-    (hid, 'פנאי ובילויים',   'game-controller',   '#3FA7D6', 'expense', 90),
-    (hid, 'מנויים ודיגיטל',  'phone-portrait',    '#7A8B99', 'expense', 100),
-    (hid, 'ביטוח',           'shield-checkmark',  '#6B8E7B', 'expense', 110),
-    (hid, 'מתנות ותרומות',   'gift',              '#C2557A', 'expense', 120),
-    (hid, 'חיות מחמד',       'paw',               '#A9743F', 'expense', 130),
-    (hid, 'חיסכון והשקעות',  'trending-up',       '#2F8F5B', 'expense', 140),
-    (hid, 'העברות כספים',    'swap-horizontal',   '#7A6BDF', 'expense', 150),
-    (hid, 'שונות',           'ellipsis-horizontal','#8A94A6','expense', 200),
-    (hid, 'משכורת',          'briefcase',         '#2E9E6B', 'income',  10),
-    (hid, 'עסק עצמאי',       'business',          '#4F7FE4', 'income',  20),
-    (hid, 'קצבאות',          'wallet',            '#F2C14E', 'income',  30),
-    (hid, 'הכנסה אחרת',      'add-circle',        '#8A94A6', 'income',  40)
+    (hid, 'סופר ומכולת',     'cart',              '#2E9E6B', 'expense', 10,  false),
+    (hid, 'מסעדות וקפה',     'restaurant',        '#E4894F', 'expense', 20,  false),
+    (hid, 'דיור ושכירות',    'home',              '#4F7FE4', 'expense', 30,  false),
+    (hid, 'חשבונות בית',     'flash',             '#F2C14E', 'expense', 40,  false),
+    (hid, 'תחבורה ודלק',     'car',               '#5BC0BE', 'expense', 50,  false),
+    (hid, 'בריאות ותרופות',  'medkit',            '#E4646C', 'expense', 60,  false),
+    (hid, 'ילדים וחינוך',    'happy',             '#9B6BDF', 'expense', 70,  false),
+    (hid, 'ביגוד והנעלה',    'shirt',             '#DE7AA8', 'expense', 80,  false),
+    (hid, 'פנאי ובילויים',   'game-controller',   '#3FA7D6', 'expense', 90,  false),
+    (hid, 'מנויים ודיגיטל',  'phone-portrait',    '#7A8B99', 'expense', 100, false),
+    (hid, 'ביטוח',           'shield-checkmark',  '#6B8E7B', 'expense', 110, false),
+    (hid, 'מתנות ותרומות',   'gift',              '#C2557A', 'expense', 120, false),
+    (hid, 'חיות מחמד',       'paw',               '#A9743F', 'expense', 130, false),
+    (hid, 'חיסכון והשקעות',  'trending-up',       '#2F8F5B', 'expense', 140, false),
+    (hid, 'העברות כספים',    'swap-horizontal',   '#7A6BDF', 'expense', 150, false),
+    (hid, 'העברה להשקעות',   'trending-up',       '#3F6BA9', 'expense', 160, true),
+    (hid, 'שונות',           'ellipsis-horizontal','#8A94A6','expense', 200, false),
+    (hid, 'משכורת',          'briefcase',         '#2E9E6B', 'income',  10,  false),
+    (hid, 'עסק עצמאי',       'business',          '#4F7FE4', 'income',  20,  false),
+    (hid, 'קצבאות',          'wallet',            '#F2C14E', 'income',  30,  false),
+    (hid, 'הכנסה אחרת',      'add-circle',        '#8A94A6', 'income',  40,  false)
   on conflict do nothing;
 end;
 $$;
@@ -745,6 +749,11 @@ create table if not exists public.accounts (
   name text not null,
   kind text not null default 'bank' check (kind in ('bank', 'brokerage', 'cash')),
   institution text,
+  -- מספר החשבון כפי שהוא בדוחות הבנק. משמש לשיוך חיובים לחשבון הנכון בלבד.
+  -- 🔴 התאמת חיובים חייבת להיות מוגבלת לאותו בנק: כרטיס אשראי בבנק אחד
+  --    לעולם לא יופיע בדוח עו"ש של בנק אחר, והתאמה גלובלית הייתה מסמנת
+  --    אותו «טרם ירד» לצמיתות ומציגה צפי שגוי בקביעות, בלי שום שגיאה.
+  external_ref text,
   currency text not null default 'ILS',
   -- חתום בכוונה — ראה הערה 2 למעלה
   balance_agorot bigint not null default 0,
@@ -783,6 +792,12 @@ create table if not exists public.securities (
   isin text,
   -- המטבע שבו הפיד מצטט. ת"א מצטטת ב-ILA (אגורות).
   quote_currency text not null default 'ILA',
+  -- סיווג לגרף ההתפלגות. נקבע אוטומטית מהקטלוג וניתן לעריכה ידנית.
+  -- 🎯 הסיווג יושב על **הנייר** ולא על החשבון: חשבון בנק אחד מחזיק גם
+  --    יתרת עו"ש וגם קרן כספית, וגזירה מ-`accounts.kind` הייתה מציגה את
+  --    הקרן כ«עו"ש» בשקט, בלי שום שגיאה.
+  asset_class text not null default 'equity'
+    check (asset_class in ('equity', 'money_market', 'bond', 'cash', 'other')),
   created_at timestamptz not null default now(),
   unique (external_id, price_feed)
 );
@@ -1005,3 +1020,119 @@ group by a.id, a.household_id, a.name, a.kind, a.balance_agorot, a.captured_at;
 
 comment on view public.net_worth_by_account is
   'שווי נטו לפי חשבון. `unpriced_holdings` מצהיר על אחזקות בלי מחיר וגם בלי שווי בדוח — המסך מסמן "הסכום חסר" במקום להציג מספר שקרי.';
+
+-- ── 5. כיס הממתינים לשיוך ──────────────────────────────────────────────────
+-- כסף שיצא מהעו"ש כתנועת הון אבל עוד לא הופיע כאחזקה. פרוסה אפורה בגרף,
+-- **רק כשהסכום גדול מאפס**, וגם רשימת מטלות: «3,000 ₪ מחכים לשיוך».
+--
+-- `transaction_id` הוא המפתח: הכיס נגזר מתנועה אמיתית ולא מהזנה חופשית,
+-- ומחיקת התנועה מנקה אותו. `unique` מונע ספירה כפולה של אותה תנועה.
+create table if not exists public.pending_allocations (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households (id) on delete cascade,
+  transaction_id uuid not null references public.transactions (id) on delete cascade,
+  -- חיובי תמיד: זהו סכום שיצא ומחכה. הכיוון קבוע ואינו נשמר.
+  amount_agorot bigint not null check (amount_agorot > 0),
+  -- לאיזה חשבון הכסף אמור להגיע, אם ידוע
+  account_id uuid references public.accounts (id) on delete set null,
+  resolved_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (transaction_id)
+);
+
+create index if not exists pending_allocations_open_idx
+  on public.pending_allocations (household_id) where resolved_at is null;
+
+comment on table public.pending_allocations is
+  'כסף שיצא מהעו"ש כתנועת הון ועוד לא הופיע כאחזקה. בלעדיו הסכום מתאדה מההון.';
+
+alter table public.pending_allocations enable row level security;
+
+drop policy if exists pending_allocations_select on public.pending_allocations;
+create policy pending_allocations_select on public.pending_allocations for select to authenticated
+using (public.is_household_member(household_id));
+
+drop policy if exists pending_allocations_insert on public.pending_allocations;
+create policy pending_allocations_insert on public.pending_allocations for insert to authenticated
+with check (public.is_household_member(household_id));
+
+drop policy if exists pending_allocations_update on public.pending_allocations;
+create policy pending_allocations_update on public.pending_allocations for update to authenticated
+using (public.is_household_member(household_id))
+with check (public.is_household_member(household_id));
+
+drop policy if exists pending_allocations_delete on public.pending_allocations;
+create policy pending_allocations_delete on public.pending_allocations for delete to authenticated
+using (public.is_household_member(household_id));
+
+-- ── 6. התפלגות הנכסים ──────────────────────────────────────────────────────
+-- מקור הנתונים של גרף העוגה. **שורה אחת לכל מחלקת נכס**, לא לכל חשבון —
+-- ובדיוק בשל כך היא נגזרת מ-`securities.asset_class` לניירות ומ-
+-- `accounts.kind` רק ליתרות המזומן שאין להן נייר.
+--
+-- `security_invoker` חובה, אחרת ה-view רץ תחת הבעלים ודולף בין משקי בית.
+create or replace view public.net_worth_by_asset_class
+with (security_invoker = on) as
+with latest_holdings as (
+  select distinct on (h.account_id, h.security_id)
+    h.household_id, h.account_id, h.security_id, h.quantity,
+    h.stated_value_agorot, h.as_of
+  from public.holdings h
+  order by h.account_id, h.security_id, h.as_of desc
+),
+latest_prices as (
+  select distinct on (p.security_id)
+    p.security_id, p.ils_price_agorot, p.price_date
+  from public.security_prices p
+  order by p.security_id, p.price_date desc
+),
+-- ניירות: המחלקה מגיעה מהנייר עצמו
+from_holdings as (
+  select
+    lh.household_id,
+    s.asset_class,
+    coalesce(
+      case
+        when lp.ils_price_agorot is not null
+          then round(lh.quantity * lp.ils_price_agorot)::bigint
+        else lh.stated_value_agorot
+      end,
+      0
+    )::bigint as value_agorot
+  from latest_holdings lh
+  join public.securities s on s.id = lh.security_id
+  left join latest_prices lp on lp.security_id = lh.security_id
+),
+-- יתרות: אין להן נייר, ולכן המחלקה מגיעה מסוג החשבון.
+-- 🪤 בבית השקעות זו יתרת המזומן בלבד — הניירות כבר נספרו למעלה.
+from_balances as (
+  select
+    a.household_id,
+    case when a.kind = 'bank' then 'checking' else 'cash' end as asset_class,
+    a.balance_agorot as value_agorot
+  from public.accounts a
+  where a.is_archived = false and a.balance_agorot <> 0
+),
+-- הכיס: פרוסה נפרדת, ומופיעה רק כשיש בה משהו
+from_pending as (
+  select
+    p.household_id,
+    'pending' as asset_class,
+    sum(p.amount_agorot)::bigint as value_agorot
+  from public.pending_allocations p
+  where p.resolved_at is null
+  group by p.household_id
+)
+select household_id, asset_class, sum(value_agorot)::bigint as value_agorot
+from (
+  select household_id, asset_class, value_agorot from from_holdings
+  union all
+  select household_id, asset_class, value_agorot from from_balances
+  union all
+  select household_id, asset_class, value_agorot from from_pending
+) all_sources
+group by household_id, asset_class
+having sum(value_agorot) <> 0;
+
+comment on view public.net_worth_by_asset_class is
+  'התפלגות ההון לפי מחלקת נכס. ניירות לפי securities.asset_class, יתרות לפי accounts.kind, והכיס כפרוסה נפרדת.';

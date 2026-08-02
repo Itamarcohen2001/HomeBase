@@ -32,10 +32,12 @@
 import { serve } from 'https://deno.land/std@0.208.0/http/server.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import {
+  classifyAsset,
   fetchCatalog,
   fetchFxToIls,
   priceSecurities,
   searchCatalog,
+  type PriceFeed,
 } from '../_shared/pricing.ts';
 
 const CORS = {
@@ -111,23 +113,43 @@ serve(async (req) => {
           symbol: symbol || null,
           isin: null,
           category: null,
+          asset_class: 'equity' as const,
         };
 
       const db = admin();
+
+      // 🔴 `asset_class` ניתן לעריכה ידנית, ו-upsert של PostgREST כותב את
+      //    כל העמודות שנשלחו. לכן שולחים אותו **רק כשהשורה עדיין לא קיימת**
+      //    — אחרת כל רענון קטלוג היה מוחק את הבחירה של המשתמש בשקט.
+      const { data: existing } = await db
+        .from('securities')
+        .select('id')
+        .eq('external_id', entry.external_id)
+        .eq('price_feed', entry.price_feed)
+        .maybeSingle();
+
+      const payload: Record<string, unknown> = {
+        external_id: entry.external_id,
+        price_feed: entry.price_feed,
+        name: entry.name,
+        symbol: entry.symbol,
+        isin: entry.isin,
+        quote_currency: entry.price_feed === 'yahoo' ? 'USD' : 'ILA',
+      };
+      if (!existing) {
+        payload.asset_class = found
+          ? entry.asset_class
+          : classifyAsset({
+              price_feed: entry.price_feed as PriceFeed,
+              name: entry.name,
+              external_id: entry.external_id,
+            });
+      }
+
       const { data, error } = await db
         .from('securities')
-        .upsert(
-          {
-            external_id: entry.external_id,
-            price_feed: entry.price_feed,
-            name: entry.name,
-            symbol: entry.symbol,
-            isin: entry.isin,
-            quote_currency: entry.price_feed === 'yahoo' ? 'USD' : 'ILA',
-          },
-          { onConflict: 'external_id,price_feed' },
-        )
-        .select('id, external_id, price_feed, name, symbol')
+        .upsert(payload, { onConflict: 'external_id,price_feed' })
+        .select('id, external_id, price_feed, name, symbol, asset_class')
         .single();
       if (error) throw new Error(error.message);
       return json({ security: data, matched: Boolean(found) });

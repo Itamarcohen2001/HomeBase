@@ -693,6 +693,13 @@ export interface TrackedTransaction {
   amount_agorot: number;
   /** yyyy-mm-dd */
   occurred_on: string;
+  /**
+   * 🔴 החלטה 20 — שורת חיוב מרוכז שדוח האשראי כבר פירט אותה.
+   *    היא נשארת ב-DB (היא קיימת בדוח העו"ש והמשתמש יראה אותה), אבל
+   *    **אינה נספרת שוב** — 992.80 של כרטיס 4003 הוא אותו כסף כמו 26
+   *    השורות המפורטות.
+   */
+  supersededByBatchId?: string | null;
 }
 
 export type TrackingGap = 'no_schema' | 'no_transaction_account' | 'no_anchor_date';
@@ -826,6 +833,10 @@ export function buildBalanceTracking(
   for (const t of transactions) {
     // 🔴 `>` ולא `>=` — ראו ANCHOR_BOUNDARY
     if (!t.occurred_on || t.occurred_on <= from) continue;
+    // 🔴 החלטה 20: שורה שדוח האשראי כבר פירט אותה אינה הוצאה נוספת.
+    //    ⚠️ הסינון כאן, ולא רק ב-`.is(...)` בשרת, כדי שהכלל יהיה **טהור
+    //    וניתן למדידה** בלי DB — וכדי שסכימה ישנה לא תשתיק אותו בשקט.
+    if (t.supersededByBatchId) continue;
     const amount = Math.abs(Number(t.amount_agorot ?? 0)) || 0;
     if (!amount) continue;
     if (t.kind === 'income') income += amount;
@@ -890,19 +901,39 @@ export async function listTrackedAccounts(householdId: string): Promise<TrackedA
  *
  * 🎯 נשלפות מהשרת עם הסינון, ולא מסוננות בלקוח: משק בית ותיק צובר
  *    אלפי תנועות, והעוגן חותך אותן לימים ספורים.
+ *
+ * 🔴 **`superseded_by_batch_id` נשלף, ואינו מסונן בשרת בלבד.** אילו הסינון
+ *    היה רק `.is(...)`, סכימה בלי החלק השני של `0012` הייתה מחזירה `42703`,
+ *    ה-catch היה מחזיר `[]`, והמעקב היה מציג את העוגן בלבד **בלי להצהיר
+ *    על כך** — בדיוק כשל השקט של `no_schema` שכבר תפסתי פעם אחת.
+ *    לכן: ניסיון עם העמודה, ונסיגה מפורשת בלעדיה.
  */
 export async function listTransactionsAfter(
   householdId: string,
   from: string,
 ): Promise<TrackedTransaction[]> {
+  const base = (cols: string) =>
+    supabase
+      .from('transactions')
+      .select(cols)
+      .eq('household_id', householdId)
+      .gt('occurred_on', from);
   try {
-    return unwrap(
-      await supabase
-        .from('transactions')
-        .select('kind, amount_agorot, occurred_on')
-        .eq('household_id', householdId)
-        .gt('occurred_on', from),
-    ) as unknown as TrackedTransaction[];
+    const withCol = await base('kind, amount_agorot, occurred_on, superseded_by_batch_id');
+    if (!withCol.error) {
+      return ((withCol.data ?? []) as unknown as {
+        kind: 'expense' | 'income';
+        amount_agorot: number;
+        occurred_on: string;
+        superseded_by_batch_id: string | null;
+      }[]).map((t) => ({
+        kind: t.kind,
+        amount_agorot: t.amount_agorot,
+        occurred_on: t.occurred_on,
+        supersededByBatchId: t.superseded_by_batch_id,
+      }));
+    }
+    return unwrap(await base('kind, amount_agorot, occurred_on')) as unknown as TrackedTransaction[];
   } catch {
     return [];
   }

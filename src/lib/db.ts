@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { monthEnd, monthStart } from './format';
 import { recordPendingAllocation } from './networth';
+import type { CreditBatchRef } from './import/aggregate';
 import type {
   Budget,
   Category,
@@ -475,14 +476,22 @@ export async function addTransactionsBulk(
   });
 
   const inserted = unwrap(
-    await supabase.from('transactions').insert(payload).select('id, category_id, kind, amount_agorot, household_id'),
+    await supabase
+      .from('transactions')
+      .insert(payload)
+      .select('id, category_id, kind, amount_agorot, occurred_on, household_id'),
   ) as unknown as {
     id: string;
     category_id: string | null;
     kind: Kind;
     amount_agorot: number;
+    occurred_on: string;
     household_id: string;
   }[];
+
+  // 🔴 חייב לרוץ **אחרי** ההוספה: שורת החיוב המרוכז מקבלת מזהה תנועה רק
+  //    עכשיו, וזה המזהה שמאפשר לייבוא דוח אשראי עתידי לבטל אותה למפרע.
+  if (batch && batchId) await linkBatchCharges(rows[0].householdId, batchId, batch, inserted);
 
   // 🎯 גם נתיב הייבוא רושם לכיס. שורה שסווגה «העברה להשקעות» בייבוא היא
   //    אותה תנועת הון בדיוק כמו הזנה ידנית, ואילו הכיס היה יושב רק במסך
@@ -497,6 +506,48 @@ export async function addTransactionsBulk(
     );
   }
   return inserted.length;
+}
+
+/**
+ * קושר שורת חיוב מרוכז לתנועה שנוצרה עבורה.
+ *
+ * 🎯 זו החוליה שמאפשרת את **הסדר ההפוך**: עו"ש נטען ראשון, ואז ייבוא דוח
+ *    האשראי מוצא דרך הקישור הזה איזו תנועה לבטל. בלעדיו הסדר הזה היה
+ *    משאיר כפילות קבועה.
+ *
+ * ⚠️ שורה שנחסמה (כי כבר היה לה פירוט) פשוט לא נמצאת ב-`inserted`,
+ *    ולכן נשארת בלי קישור — וזה הנכון.
+ */
+async function linkBatchCharges(
+  householdId: string,
+  batchId: string,
+  batch: ImportBatchInput,
+  inserted: { id: string; amount_agorot: number; occurred_on: string }[],
+): Promise<void> {
+  const charges = batch.cardCharges ?? [];
+  if (!charges.length) return;
+  const used = new Set<string>();
+  try {
+    for (const c of charges) {
+      const hit = inserted.find(
+        (t) =>
+          !used.has(t.id) &&
+          Number(t.amount_agorot) === c.amountAgorot &&
+          String(t.occurred_on).slice(0, 10) === c.occurredOn,
+      );
+      if (!hit) continue;
+      used.add(hit.id);
+      await supabase
+        .from('import_batch_charges')
+        .update({ transaction_id: hit.id })
+        .eq('batch_id', batchId)
+        .eq('external_ref', c.ref)
+        .eq('amount_agorot', c.amountAgorot)
+        .eq('occurred_on', c.occurredOn);
+    }
+  } catch {
+    /* אין עמודה ⇒ אין קישור. הייבוא עצמו הצליח. */
+  }
 }
 
 /**
@@ -518,7 +569,7 @@ export type ImportBatchInput = {
    * (סימונן היה סופר את אותו כסף פעמיים), ולכן אין דרך לשחזר אותן מ-
    * `transactions` והן נשמרות בטבלה משלהן.
    */
-  cardCharges?: { ref: string; amountAgorot: number; occurredOn: string }[];
+  cardCharges?: { ref: string; amountAgorot: number; occurredOn: string; transactionId?: string | null }[];
 };
 
 /**
@@ -562,12 +613,22 @@ async function createImportBatch(
     const id = (data as { id: string } | null)?.id ?? null;
     if (id) {
       await saveBatchCharges(householdId, id, batch);
+      // 🔴 הצד השני של החלטה 20: אם דוח העו"ש כבר יובא, שורת החיוב
+      //    המרוכז קיימת כתנועה וחייבת להתבטל עכשיו — אחרת הכפילות נשארת.
+      if (batch.kind === 'credit_report') {
+        await supersedeAggregates(householdId, id, batch.ref?.value ?? null, batch.parsedTotalAgorot);
+      }
       return id;
     }
     if (!error) return null;
 
     const existing = await findExistingBatch(householdId, payload);
-    if (existing) await saveBatchCharges(householdId, existing, batch);
+    if (existing) {
+      await saveBatchCharges(householdId, existing, batch);
+      if (batch.kind === 'credit_report') {
+        await supersedeAggregates(householdId, existing, batch.ref?.value ?? null, batch.parsedTotalAgorot);
+      }
+    }
     return existing;
   } catch {
     return null;
@@ -626,10 +687,68 @@ async function saveBatchCharges(householdId: string, batchId: string, batch: Imp
         external_ref: c.ref,
         amount_agorot: c.amountAgorot,
         occurred_on: c.occurredOn,
+        transaction_id: c.transactionId ?? null,
       })),
     );
   } catch {
     /* אין טבלה ⇒ אין קישור כרטיסים. הייבוא עצמו הצליח. */
+  }
+}
+
+/**
+ * אצוות האשראי הקיימות — הקלט לכלל «פירוט גובר על אגרגט» (החלטה 20).
+ *
+ * 🎯 נטען **לפני** הצגת הטיוטה, כדי ששורת חיוב מרוכז תוצג נכון כבר בפעם
+ *    הראשונה: כבויה אם יש לה פירוט, ומסומנת אם אין.
+ */
+export async function listCreditBatches(householdId: string): Promise<CreditBatchRef[]> {
+  try {
+    const { data } = await supabase
+      .from('import_batches')
+      .select('id, external_ref, parsed_total_agorot')
+      .eq('household_id', householdId)
+      .eq('kind', 'credit_report');
+    return (data ?? []) as unknown as CreditBatchRef[];
+  } catch {
+    // סכימה בלי 0012 ⇒ אין אצוות ⇒ שורות האגרגט נספרות, וזה הצד הבטוח:
+    // חוסר ספירה מעוות את היתרה לצמיתות, כפילות נראית מיד.
+    return [];
+  }
+}
+
+/**
+ * סימון **למפרע** — הצד השני של החלטה 20.
+ *
+ * 🔴 כשדוח העו"ש יובא **ראשון**, שורת ה-992.80 כבר קיימת כתנועה. ייבוא
+ *    דוח האשראי אחריה חייב לבטל אותה, אחרת הכפילות נשארת לנצח.
+ *
+ * 🎯 ההתאמה על **(כרטיס, סכום)**: הכרטיס 4003 מופיע חמש פעמים באותו דוח,
+ *    ולכן כרטיס לבדו היה מבטל ארבע שורות אמיתיות.
+ */
+async function supersedeAggregates(
+  householdId: string,
+  creditBatchId: string,
+  ref: string | null,
+  totalAgorot: number,
+): Promise<number> {
+  if (!ref) return 0;
+  try {
+    const { data } = await supabase
+      .from('import_batch_charges')
+      .select('transaction_id')
+      .eq('household_id', householdId)
+      .eq('external_ref', ref)
+      .eq('amount_agorot', totalAgorot)
+      .not('transaction_id', 'is', null);
+    const ids = ((data ?? []) as { transaction_id: string }[]).map((r) => r.transaction_id);
+    if (!ids.length) return 0;
+    await supabase
+      .from('transactions')
+      .update({ superseded_by_batch_id: creditBatchId })
+      .in('id', ids);
+    return ids.length;
+  } catch {
+    return 0;
   }
 }
 

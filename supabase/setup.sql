@@ -1295,6 +1295,34 @@ comment on column public.transactions.import_batch_id is
 create index if not exists accounts_external_ref_idx
   on public.accounts (household_id, external_ref) where external_ref is not null;
 
+-- ── 5. החלטה 20: פירוט גובר על אגרגט ───────────────────────────────────────
+-- 🔴 שורת «4003 - כרטיסי אשראי לי» בסך 992.80 בדוח העו"ש **היא אותו כסף**
+--    כמו 26 השורות של דוח האשראי. ספירת שתיהן מנפחת את ההוצאה פי שניים.
+--
+-- 🎯 והכלל חייב לפעול **בשני סדרי הייבוא**. כשהעו"ש יובא ראשון, השורה כבר
+--    קיימת כתנועה, ולכן דרוש סימון **למפרע** — ומכאן העמודה הזו.
+--
+-- ⚠️ ‏`on delete set null`: מחיקת אצוות האשראי מחזירה את שורת האגרגט
+--    לספירה, וזה נכון — בלי הפירוט היא שוב הייצוג היחיד של אותו כסף.
+alter table public.transactions
+  add column if not exists superseded_by_batch_id uuid
+    references public.import_batches (id) on delete set null;
+
+create index if not exists transactions_superseded_idx
+  on public.transactions (superseded_by_batch_id) where superseded_by_batch_id is not null;
+
+comment on column public.transactions.superseded_by_batch_id is
+  'חיוב מרוכז שהוחלף בפירוט מדוח אשראי. מסומן ⇒ אינו נספר ביתרה, כי אותו כסף כבר נספר בשורות המפורטות.';
+
+-- 🎯 הקישור מהשורה המרוכזת לתנועה שנוצרה ממנה. בלעדיו אי אפשר לסמן למפרע
+--    כשדוח האשראי מגיע **אחרי** דוח העו"ש: לא היה ממה למצוא את התנועה.
+--    ‏null = השורה זוהתה בדוח אך לא יובאה (כי הפירוט כבר היה קיים).
+alter table public.import_batch_charges
+  add column if not exists transaction_id uuid
+    references public.transactions (id) on delete set null;
+
+comment on column public.import_batch_charges.transaction_id is
+  'התנועה שנוצרה משורת החיוב המרוכז, אם יובאה. דרכה מסמנים אותה למפרע כשדוח האשראי מגיע אחר כך.';
 -- ══ 0013 — חשבון התנועות (החלטות 18+19) ══════════════
 alter table public.accounts
   add column if not exists is_transaction_account boolean not null default false;

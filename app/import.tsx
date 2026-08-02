@@ -19,6 +19,12 @@ import {
   type DraftRow,
   type ImportRule,
 } from '../src/lib/import/draft';
+import {
+  aggregateNote,
+  applyAggregateRule,
+  matchAggregate,
+  type CreditBatchRef,
+} from '../src/lib/import/aggregate';
 import type { Category, HouseholdMember } from '../src/lib/types';
 import {
   AssignmentChips,
@@ -100,6 +106,7 @@ export default function Import() {
   const [rows, setRows] = useState<DraftRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
+  const [creditBatches, setCreditBatches] = useState<CreditBatchRef[]>([]);
   const [sharedAvailable, setSharedAvailable] = useState(false);
   const [pickerRowId, setPickerRowId] = useState<string | null>(null);
   const [assignRowId, setAssignRowId] = useState<string | null>(null);
@@ -192,19 +199,29 @@ export default function Import() {
         // קבוע בחודש, וקובץ שמתחיל ב-6 בפברואר היה מחמיץ תנועה מה-1 בו.
         const from = dates.length ? `${dates[0].slice(0, 8)}01` : monthStart();
         const to = dates.length ? monthEnd(dates[dates.length - 1]) : monthEnd(monthStart());
-        const [allCategories, existing, rules, householdMembers] = await Promise.all([
+        const [allCategories, existing, rules, householdMembers, creditBatchList] = await Promise.all([
           db.listCategories(householdId),
           db.listTransactionsInRange(householdId, from, to),
           db.listImportRules(householdId).catch(() => [] as ImportRule[]),
           db.listMembers(householdId).catch(() => [] as HouseholdMember[]),
+          db.listCreditBatches(householdId).catch(() => [] as CreditBatchRef[]),
         ]);
         // הקטגוריות נמסרות במלואן — `buildDraft` מסנן לפי כיוון כל שורה.
         // סינון מוקדם להוצאות בלבד היה מפיל בשקט כלל שמצביע על קטגוריית הכנסה.
         knownRules.current = rules;
         setCategories(allCategories);
         setMembers(householdMembers);
+        setCreditBatches(creditBatchList);
         setResult(parsed);
-        setRows(buildDraft(parsed.rows, { categories: allCategories, existing, rules }));
+        // 🔴 החלטה 20 מוחלת **כאן ולא ב-`draft.ts`**: שם נקבעת ברירת מחדל
+        //    תחבירית, וכאן הכלל הסמנטי שדורש מצב מה-DB. שורת חיוב מרוכז
+        //    שאין לה דוח אשראי מיובא היא הוצאה אמיתית ותסומן.
+        setRows(
+          applyAggregateRule(
+            buildDraft(parsed.rows, { categories: allCategories, existing, rules }),
+            creditBatchList,
+          ).rows,
+        );
         setFileName(name);
       } catch (e) {
         setResult(null);
@@ -269,15 +286,28 @@ export default function Import() {
     setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, selected: next } : r)));
   }
 
+  /**
+   * האם לשורת החיוב המרוכז כבר יש דוח אשראי מיובא שמפרט אותה.
+   * ⚠️ תלוי ב-`creditBatches`, ולכן חייב להיקרא בתוך הרכיב ולא במודול.
+   */
+  function isSuperseded(row: DraftRow): boolean {
+    return matchAggregate(row, creditBatches).batchId !== null;
+  }
+
   function setAllSelected(next: boolean) {
-    // חיוב מרוכז של כרטיס אשראי מוחרג גם מהסימון הגורף: הסכום שלו מפורט
-    // בדוח האשראי עצמו, ולחיצה אחת הייתה סופרת אותו פעמיים בשקט. הוא נשאר
-    // גלוי וניתן לסימון ידני.
-    setRows((rs) => rs.map((r) => ({ ...r, selected: next ? !r.isRefund && !r.isCardCharge : false })));
+    // 🎯 חיוב מרוכז מוחרג מהסימון הגורף **רק אם דוח האשראי שלו כבר יובא**.
+    //    ההחרגה הגורפת הקודמת הפילה 9,955.55 ₪ במדידה על הקובץ האמיתי:
+    //    חמש שורות ריכוז שאיש לא פירט אותן פשוט נעלמו.
+    setRows((rs) =>
+      rs.map((r) => ({
+        ...r,
+        selected: next ? !r.isRefund && !isSuperseded(r) : false,
+      })),
+    );
     const skipped: string[] = [];
     if (next && rows.some((r) => r.isRefund)) skipped.push('שורות זיכוי — לא ניתן לייבא החזר כהוצאה');
-    if (next && rows.some((r) => r.isCardCharge))
-      skipped.push('שורות חיוב מרוכז של כרטיס אשראי — הסכום שלהן מפורט בדוח האשראי');
+    if (next && rows.some((r) => isSuperseded(r)))
+      skipped.push('שורות חיוב מרוכז שכבר יובאו במפורט מדוח האשראי');
     setMessage(
       skipped.length
         ? { tone: 'info', text: `לא נכללו בסימון: ${skipped.join(' · ')}. אפשר לסמן אותן ידנית.` }
@@ -372,8 +402,9 @@ export default function Import() {
                 : null,
               chargeDate: result.chargeDate ?? null,
               statementDate: result.statementDate ?? null,
-              // שורות החיוב המרוכז — אינן מיובאות כתנועות, ולכן זה המקום
-              // היחיד שבו הן נשמרות.
+              // 🎯 שורות החיוב המרוכז נשמרות **תמיד**, גם כשהן כן יובאו
+              //    כתנועה: הן החוליה שמאפשרת לדוח אשראי עתידי לבטל אותן
+              //    למפרע (`linkBatchCharges` מחבר להן את מזהה התנועה).
               cardCharges: result.rows
                 .filter((r) => r.isCardCharge)
                 .map((r) => ({
@@ -631,6 +662,7 @@ export default function Import() {
                   row={row}
                   index={i}
                   first={i === 0}
+                  superseded={isSuperseded(row)}
                   category={row.categoryId ? categoryById.get(row.categoryId) ?? null : null}
                   assignment={
                     sharedAvailable
@@ -734,6 +766,7 @@ function ImportRowItem({
   row,
   index,
   first,
+  superseded,
   category,
   assignment,
   onToggle,
@@ -743,6 +776,8 @@ function ImportRowItem({
   row: DraftRow;
   index: number;
   first: boolean;
+  /** 🔴 האם דוח האשראי שמפרט את השורה כבר יובא (החלטה 20) */
+  superseded: boolean;
   category: Category | null;
   /** תווית השיוך, או `null` כשהמסד לא תומך בהוצאות משותפות */
   assignment: string | null;
@@ -754,7 +789,7 @@ function ImportRowItem({
   const reasons: string[] = [];
   if (row.duplicate) reasons.push('כבר קיימת אצלך תנועה זהה בתאריך ובסכום האלה');
   if (row.isRefund) reasons.push('זיכוי (החזר) אינו הוצאה ולכן לא ניתן לייבא אותו');
-  if (row.isCardCharge) reasons.push('שורת ריכוז של חיוב כרטיס — הסכום כבר מופיע בשורות הפירוט');
+  if (row.isCardCharge) reasons.push(aggregateNote(superseded));
 
   const detail = (row.detail ?? '').trim();
 
@@ -893,9 +928,11 @@ function ImportRowItem({
           </Badge>
         ) : null}
         {row.isCardCharge ? (
-          <Badge icon="card" color={colors.textMuted}>
-            חיוב כרטיס
-          </Badge>
+          <View testID={`hb-import-cardcharge-${index}`}>
+            <Badge icon="card" color={superseded ? colors.textMuted : colors.warning}>
+              {superseded ? 'כבר יובא במפורט' : 'חיוב כרטיס — אין דוח'}
+            </Badge>
+          </View>
         ) : null}
         {row.recurringOverlap ? (
           <View testID={`hb-import-recurring-${index}`}>

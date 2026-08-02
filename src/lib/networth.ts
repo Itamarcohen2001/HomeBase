@@ -737,8 +737,26 @@ export function anchorDate(capturedAt: string | null | undefined): string | null
   //    `captured_at` הוא `timestamptz` (נמדד ב-0010), ולכן ההשוואה חייבת
   //    לרדת ליום. ערך שכבר הוא יום מוחזר **כמות שהוא** ואינו עובר דרך
   //    `Date` כלל — כך אזור הזמן של המכשיר אינו יכול להזיז אותו.
-  const dateOnly = /^(\d{4}-\d{2}-\d{2})$/.exec(capturedAt.trim());
-  if (dateOnly) return dateOnly[1];
+  //
+  // 🔴 **אבל צורה אינה תוקף.** הרגקס לבדו היה מחזיר `'2026-13-45'` כמות
+  //    שהוא, וההשוואה המחרוזתית `occurred_on > '2026-13-45'` **לעולם לא
+  //    יורה** ⇒ אפס תנועות, בלי `gap`, בלי אזהרה. זה היה הופך פער
+  //    **מוצהר** לפער **שקט** — בדיוק המחלקה שתוקנה ב-`382312c`.
+  //    ⚠️ אינו נגיש היום (`captured_at` הוא `timestamptz not null`), וזה
+  //    חיזוק מפני צורת-ערך ולא באג חי — אבל «מצהירים, לא מנחשים» חל גם
+  //    על קלט שאמור להיות בלתי אפשרי.
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(capturedAt.trim());
+  if (dateOnly) {
+    const [, y, m, d] = dateOnly;
+    const probe = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+    // הלוך-חזור על שלושת השדות: `Date` מגלגל 31/02 ל-03/03, ולכן רק
+    // השוואה של כל השלושה תופסת תאריך שאינו קיים.
+    const same =
+      probe.getUTCFullYear() === Number(y) &&
+      probe.getUTCMonth() === Number(m) - 1 &&
+      probe.getUTCDate() === Number(d);
+    return same ? `${y}-${m}-${d}` : null;
+  }
   const d = new Date(capturedAt);
   if (!Number.isFinite(d.getTime())) return null;
   const mm = String(d.getMonth() + 1).padStart(2, '0');

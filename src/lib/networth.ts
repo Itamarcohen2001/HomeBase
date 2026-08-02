@@ -635,33 +635,6 @@ export async function listBatchCharges(householdId: string): Promise<BatchCharge
   }
 }
 
-/**
- * חשבונות הבנק עם המזהה שהקובץ הצהיר עליו. נשלף ישירות מ-`accounts`
- * ולא מה-view, כדי לא לגעת ב-`net_worth_by_account` שכבר אומת שלוש פעמים.
- */
-export interface BankAccount {
-  id: string;
-  name: string;
-  external_ref?: string | null;
-  balance_agorot: number;
-  captured_at?: string | null;
-}
-
-export async function listBankAccounts(householdId: string): Promise<BankAccount[]> {
-  try {
-    return unwrap(
-      await supabase
-        .from('accounts')
-        .select('id, name, external_ref, balance_agorot, captured_at')
-        .eq('household_id', householdId)
-        .eq('is_archived', false)
-        .eq('kind', 'bank'),
-    ) as unknown as BankAccount[];
-  } catch {
-    return [];
-  }
-}
-
 // ═══ מעקב יתרה: העוגן והצבירה (החלטות 18+19) ════════════════════════════════
 
 /**

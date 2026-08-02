@@ -726,6 +726,12 @@ export interface BalanceTracking {
  */
 export function anchorDate(capturedAt: string | null | undefined): string | null {
   if (!capturedAt) return null;
+  // 🎯 **`date` מול `date`, מפורשות.** ‏`occurred_on` הוא `date` ואילו
+  //    `captured_at` הוא `timestamptz` (נמדד ב-0010), ולכן ההשוואה חייבת
+  //    לרדת ליום. ערך שכבר הוא יום מוחזר **כמות שהוא** ואינו עובר דרך
+  //    `Date` כלל — כך אזור הזמן של המכשיר אינו יכול להזיז אותו.
+  const dateOnly = /^(\d{4}-\d{2}-\d{2})$/.exec(capturedAt.trim());
+  if (dateOnly) return dateOnly[1];
   const d = new Date(capturedAt);
   if (!Number.isFinite(d.getTime())) return null;
   const mm = String(d.getMonth() + 1).padStart(2, '0');
@@ -760,6 +766,17 @@ export function pickTransactionAccount<T extends { is_transaction_account?: bool
  * 🎯 **הקלדה ידנית היא תיקון עוגן**, לא חובה תקופתית: היא מציבה
  *    `captured_at` חדש, ולכן הצבירה מתחילה מאפס («אני יודע שעכשיו יש
  *    18,785 — תמשיך מכאן»).
+ *
+ * ⚠️ **אין כאן טיפול נפרד בהעברות להשקעות, וזה מכוון.** ‏`is_capital_move`
+ *    כבר מחווטת בשני נתיבי הכתיבה (`addTransaction` ו-`addTransactionsBulk`
+ *    → `noteCapitalMove` → `recordPendingAllocation`), ולכן העברה להשקעות
+ *    היא `expense` רגילה שמקטינה את העו"ש **פעם אחת**, בעוד הסכום מוחזק
+ *    בצד ההשקעות. טיפול נוסף כאן היה סופר אותה פעמיים וינפח את ההון.
+ *    ⇒ **אל תוסיפו ענף ל-`is_capital_move` בפונקציה הזו.**
+ *
+ * ⚠️ והגבול הוא `occurred_on`, **לעולם לא** `created_at`: דוח עו"ש מ-31/07
+ *    מכיל תנועות מ-02/03, וייבוא רטרואקטיבי לפי מועד הכתיבה היה מנפח את
+ *    היתרה בכל ייבוא מחדש.
  */
 export function buildBalanceTracking(
   accounts: TrackedAccount[],

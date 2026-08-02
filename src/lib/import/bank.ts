@@ -3,6 +3,8 @@ import {
   type Matrix,
   type ParseResult,
   type ParsedRow,
+  extractAccountRef,
+  extractHeaderDate,
   findRow,
   headerIndex,
   looksLikeCardCharge,
@@ -129,11 +131,16 @@ export function parseBank(rows: Matrix): ParseResult {
 
   return {
     source: 'תנועות בחשבון עו"ש',
+    statementKind: 'bank_statement',
     rows: out,
     // בדוח עו"ש אין שורת סה"כ להשוות אליה; האימות הוא התאמת היתרות שלמעלה
     statedTotal: null,
     parsedTotal: round2(income - expense),
     notes,
+    // «חשבון: 363-313550 תאריך:31/07/2026 18:00»
+    accountRef: extractAccountRef(rows),
+    chargeDate: null,
+    statementDate: extractHeaderDate(rows, ['תאריך']),
   };
 }
 

@@ -450,10 +450,10 @@ export async function addTransactionsBulk(
   }[],
   /**
    * 🎯 אצוות הייבוא. בלעדיה אין דרך לדעת איזה חשבון מחויב, ולכן אין צפי
-   *    עו"ש — תנועה שייכת למשק בית, לא לחשבון. הסך נשמר כי הוא המפתח
-   *    להתאמה מול שורת החיוב בדוח העו"ש.
+   *    עו"ש — תנועה שייכת למשק בית, לא לחשבון. המזהה שהקובץ הצהיר עליו
+   *    (`ref`) הוא מפתח השיוך, והסך הוא מפתח ההתאמה מול שורת החיוב.
    */
-  batch?: { source: string; statedTotalAgorot: number | null; parsedTotalAgorot: number },
+  batch?: ImportBatchInput,
 ): Promise<number> {
   if (!rows.length) return 0;
   const withShared = await hasSharedColumn();
@@ -500,38 +500,136 @@ export async function addTransactionsBulk(
 }
 
 /**
+ * אצוות ייבוא כפי שהמסך מוסר אותה. כל השדות **נשאבים מהקובץ** — אין כאן
+ * שום דבר שהמשתמש מקליד.
+ */
+export type ImportBatchInput = {
+  source: string;
+  statedTotalAgorot: number | null;
+  parsedTotalAgorot: number;
+  /** 'bank_statement' לדוח עו"ש · 'credit_report' לדוח אשראי */
+  kind: 'bank_statement' | 'credit_report';
+  /** 🎯 «חשבון: 363-313550» / «כרטיס:4003» — מפתח השיוך היחיד */
+  ref: { value: string; kind: 'account' | 'card' } | null;
+  chargeDate: string | null;
+  statementDate: string | null;
+  /**
+   * שורות החיוב המרוכז שבדוח העו"ש. **אינן מיובאות כתנועות** במכוון
+   * (סימונן היה סופר את אותו כסף פעמיים), ולכן אין דרך לשחזר אותן מ-
+   * `transactions` והן נשמרות בטבלה משלהן.
+   */
+  cardCharges?: { ref: string; amountAgorot: number; occurredOn: string }[];
+};
+
+/**
  * יוצר את שורת האצווה. נכשל בשקט על סכימה ישנה — הייבוא עצמו חשוב יותר
- * מהצפי, ואצווה חסרה פשוט אומרת «אין צפי», שזו ההתנהגות הנכונה ממילא.
+ * מהצפי, ואצווה חסרה פשוט אומרת «אין דוח», שזו ההתנהגות הנכונה ממילא.
  *
- * 🪤 `institution` נגזר מ-`source` שהפרסר הצהיר. הוא **ניתן לעריכה** —
- *    הנרמול הוא ברירת מחדל, לא גזירת גורל.
+ * 🔴 **שים לב למה שלא נכתב כאן: שם מוסד.** נמדד על שלושת הקבצים
+ *    האמיתיים שאף אחד מהם אינו מצהיר שם בנק, ולכן `institution` היה
+ *    בהכרח תווית שנכתבה בקוד («מסטרקארד דירקט — בנק הפועלים») ולא נתון.
+ *    ההתאמה מולה לא הייתה יורה אף פעם. המזהה המספרי כן מוצהר בשלושתם.
  */
 async function createImportBatch(
   rows: { householdId: string; userId: string; occurredOn: string }[],
-  batch: { source: string; statedTotalAgorot: number | null; parsedTotalAgorot: number },
+  batch: ImportBatchInput,
 ): Promise<string | null> {
   const dates = rows.map((r) => r.occurredOn).filter(Boolean).sort();
+  const householdId = rows[0].householdId;
   try {
-    const { data, error } = await supabase
-      .from('import_batches')
-      .insert({
-        household_id: rows[0].householdId,
-        kind: 'credit',
-        source: batch.source,
-        institution: batch.source,
-        stated_total_agorot: batch.statedTotalAgorot,
-        parsed_total_agorot: batch.parsedTotalAgorot,
-        row_count: rows.length,
-        occurred_from: dates[0] ?? null,
-        occurred_to: dates[dates.length - 1] ?? null,
-        created_by: rows[0].userId,
-      })
-      .select('id')
-      .single();
-    if (error) return null;
-    return (data as { id: string } | null)?.id ?? null;
+    const payload = {
+      household_id: householdId,
+      kind: batch.kind,
+      source: batch.source,
+      external_ref: batch.ref?.value ?? null,
+      ref_kind: batch.ref?.kind ?? null,
+      // 🎯 דוח עו"ש משייך את עצמו לחשבון לפי המזהה שלו.
+      account_id: batch.kind === 'bank_statement' ? await findAccountByRef(householdId, batch.ref?.value) : null,
+      stated_total_agorot: batch.statedTotalAgorot,
+      parsed_total_agorot: batch.parsedTotalAgorot,
+      row_count: rows.length,
+      occurred_from: dates[0] ?? null,
+      occurred_to: dates[dates.length - 1] ?? null,
+      statement_date: batch.statementDate,
+      charge_date: batch.chargeDate,
+      created_by: rows[0].userId,
+    };
+    const { data, error } = await supabase.from('import_batches').insert(payload).select('id').single();
+
+    // 🪤 ייבוא חוזר של אותו קובץ מתנגש באילוץ הייחודיות. זו אינה שגיאה —
+    //    זו בדיוק אותה אצווה, ולכן מחזירים את המזהה הקיים כדי שהתנועות
+    //    יקושרו אליה במקום להישאר יתומות.
+    const id = (data as { id: string } | null)?.id ?? null;
+    if (id) {
+      await saveBatchCharges(householdId, id, batch);
+      return id;
+    }
+    if (!error) return null;
+
+    const existing = await findExistingBatch(householdId, payload);
+    if (existing) await saveBatchCharges(householdId, existing, batch);
+    return existing;
   } catch {
     return null;
+  }
+}
+
+async function findAccountByRef(householdId: string, ref: string | null | undefined): Promise<string | null> {
+  if (!ref) return null;
+  try {
+    const { data } = await supabase
+      .from('accounts')
+      .select('id')
+      .eq('household_id', householdId)
+      .eq('external_ref', ref)
+      .limit(1);
+    return (data as { id: string }[] | null)?.[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function findExistingBatch(
+  householdId: string,
+  payload: { external_ref: string | null; parsed_total_agorot: number; statement_date: string | null },
+): Promise<string | null> {
+  try {
+    let q = supabase
+      .from('import_batches')
+      .select('id')
+      .eq('household_id', householdId)
+      .eq('parsed_total_agorot', payload.parsed_total_agorot);
+    q = payload.external_ref ? q.eq('external_ref', payload.external_ref) : q.is('external_ref', null);
+    q = payload.statement_date ? q.eq('statement_date', payload.statement_date) : q.is('statement_date', null);
+    const { data } = await q.limit(1);
+    return (data as { id: string }[] | null)?.[0]?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * שומר את שורות החיוב המרוכז. הן החוליה שקושרת דוח אשראי לחשבון:
+ * «4003 - כרטיסי אשראי לי» בסכום 992.80 אומרת שהכרטיס 4003 מחויב
+ * בחשבון של הדוח הזה.
+ */
+async function saveBatchCharges(householdId: string, batchId: string, batch: ImportBatchInput): Promise<void> {
+  const charges = batch.cardCharges ?? [];
+  if (!charges.length) return;
+  try {
+    // ייבוא חוזר של אותו דוח לא יכפיל את השורות
+    await supabase.from('import_batch_charges').delete().eq('batch_id', batchId);
+    await supabase.from('import_batch_charges').insert(
+      charges.map((c) => ({
+        household_id: householdId,
+        batch_id: batchId,
+        external_ref: c.ref,
+        amount_agorot: c.amountAgorot,
+        occurred_on: c.occurredOn,
+      })),
+    );
+  } catch {
+    /* אין טבלה ⇒ אין קישור כרטיסים. הייבוא עצמו הצליח. */
   }
 }
 

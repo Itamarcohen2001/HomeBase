@@ -40,6 +40,22 @@ export type ParseResult = {
   parsedTotal: number;
   /** הערות בעברית להצגה במסך האישור */
   notes: string[];
+  /**
+   * 🔴 סוג הדוח, **כפי שהפרסר מצהיר** ולא כפי שהמסך מנחש.
+   *    ‏`'bank_statement'` = תנועות עו"ש · `'credit_report'` = דוח אשראי.
+   *    ההבחנה מהותית לצפי: 26 שורות דוח האשראי **כבר מיוצגות** בשורת
+   *    החיוב המרוכז שבדוח העו"ש, ולכן חיבורן פרטנית לצפי הוא ספירה כפולה.
+   */
+  statementKind?: 'bank_statement' | 'credit_report';
+  /**
+   * 🎯 המזהה שהקובץ מצהיר עליו — המפתח היחיד לשיוך לחשבון.
+   *    ‏`null` = הקובץ לא הצהיר, ואז **מצהירים «אין שיוך» ולא מנחשים**.
+   */
+  accountRef?: AccountRef | null;
+  /** «חיוב בתאריך» — מוצהר ב-1 מ-3 הקבצים בלבד, ולכן חיזוק ולא תנאי */
+  chargeDate?: string | null;
+  /** תאריך הפקת/צילום הדוח */
+  statementDate?: string | null;
 };
 
 export class ImportError extends Error {}
@@ -153,4 +169,101 @@ export function headerIndex(row: unknown[]): Map<string, number> {
     if (key && !map.has(key)) map.set(key, i);
   });
   return map;
+}
+
+// ── מזהה החשבון/הכרטיס שהקובץ מצהיר עליו ─────────────────────────────────────
+
+export type AccountRefKind = 'account' | 'card';
+
+export type AccountRef = {
+  /** המזהה כפי שהקובץ מצהיר עליו, למשל `363-313550` או `4003` */
+  ref: string;
+  /** 🎯 **הקובץ מצהיר את הסוג בעצמו** — «חשבון» מול «כרטיס» */
+  kind: AccountRefKind;
+};
+
+/**
+ * 🔴 **המפתח לשיוך הוא המספר שבקובץ, לא שם בנק.** נמדד על שלושת הקבצים
+ *    האמיתיים: **אף אחד** מהם אינו מצהיר שם בנק (חיפוש 7 שמות — אפס
+ *    התאמות). לעומת זאת שלושתם מצהירים מספר:
+ *
+ *        FibiSave   «חשבון: 363-313550 תאריך:31/07/2026 18:00»
+ *        הפועלים    «מספר חשבון  12-556-568338  תאריך הפקה  24.04.2026»
+ *        כ.א.ל      «כרטיס:4003 - ויזה כ.א.ל חודש החיוב: 02/07/2026»
+ *
+ * 🪤 והתווית «חשבון» / «כרטיס» היא **שדה מובנה שהקובץ כותב**, ולכן היא
+ *    גם קובעת את סוג המזהה — בדיוק כמו «סוג נייר» בדוח בית ההשקעות.
+ *    ‏`מספר חשבון` בדוח הפועלים הוא חשבון בנק, ולא הכרטיס `9041` שבעמודה.
+ */
+const REF_PATTERNS: { re: RegExp; kind: AccountRefKind }[] = [
+  { re: /חשבון:?\s*(\d[\d-]{3,})/, kind: 'account' },
+  { re: /כרטיס:?\s*(\d[\d-]{2,})/, kind: 'card' },
+];
+
+/** מנקה מקפים תלויים: «4003-» מהקובץ הוא «4003». */
+function tidyRef(raw: string): string {
+  return raw.replace(/^-+|-+$/g, '');
+}
+
+/**
+ * מחלץ את המזהה מכותרת הקובץ.
+ *
+ * 🪤 סורק רק את ראש הקובץ. מספרים שנראים כמו מזהה מופיעים גם בשורות
+ *    התנועה עצמן, ובלי חלון הכותרת היינו קולטים אסמכתא של תנועה אקראית.
+ * 🪤 והתבנית מעוגנת בתווית ולא במספר: «תאריך:31/07/2026» ו«חודש החיוב:
+ *    02/07/2026» יושבים באותם תאים בדיוק, וחיפוש מספר חופשי היה בולע אותם.
+ */
+export function extractAccountRef(rows: Matrix, scanRows = 8): AccountRef | null {
+  const limit = Math.min(rows.length, scanRows);
+  for (let i = 0; i < limit; i++) {
+    for (const cell of rows[i] ?? []) {
+      const text = norm(cell);
+      if (!text) continue;
+      for (const { re, kind } of REF_PATTERNS) {
+        const m = text.match(re);
+        if (!m) continue;
+        const ref = tidyRef(m[1]);
+        if (ref.length >= 3) return { ref, kind };
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * תאריך מכותרת, לפי תווית. מחזיר `yyyy-mm-dd`.
+ *
+ * 🪤 נמדד: «חיוב בתאריך» מוצהר ב-1 מ-3 הקבצים בלבד. הפועלים מצהיר
+ *    «תאריך הפקה» ו-FibiSave «תאריך» — ולכן `chargeDate` הוא **חיזוק,
+ *    לא תנאי**, ואסור להתנות בו את השיוך.
+ */
+export function extractHeaderDate(rows: Matrix, labels: string[], scanRows = 8): string | null {
+  const limit = Math.min(rows.length, scanRows);
+  for (let i = 0; i < limit; i++) {
+    for (const cell of rows[i] ?? []) {
+      const text = norm(cell);
+      if (!text) continue;
+      for (const label of labels) {
+        const idx = text.indexOf(label);
+        if (idx < 0) continue;
+        const after = text.slice(idx + label.length);
+        const m = after.match(/(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})/);
+        if (!m) continue;
+        const year = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
+        return `${year}-${String(Number(m[2])).padStart(2, '0')}-${String(Number(m[1])).padStart(2, '0')}`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * מספר הכרטיס משורת חיוב מרוכז בדוח העו"ש: «4003 - כרטיסי אשראי לי» → `4003`.
+ *
+ * 🎯 זו החוליה שסוגרת את השרשרת: דוח האשראי מצהיר «כרטיס:4003», ושורת
+ *    העו"ש מתחילה באותו מספר. שני קבצים נפרדים, אותו מזהה.
+ */
+export function cardRefFromCharge(description: string): string | null {
+  const m = norm(description).match(/^(\d{3,})\s*-/);
+  return m ? m[1] : null;
 }

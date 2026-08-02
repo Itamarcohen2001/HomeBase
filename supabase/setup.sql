@@ -137,7 +137,7 @@ language sql
 stable
 security definer
 set search_path = public
-as $$
+as$
   select exists (
     select 1 from public.household_members m
     where m.household_id = hid and m.user_id = auth.uid()
@@ -1158,25 +1158,45 @@ comment on view public.net_worth_by_asset_class is
 create table if not exists public.import_batches (
   id uuid primary key default gen_random_uuid(),
   household_id uuid not null references public.households (id) on delete cascade,
-  -- 'credit' = דוח אשראי שירד כחיוב אחד; 'bank' = דוח עו"ש
-  kind text not null default 'credit' check (kind in ('credit', 'bank')),
-  -- מה שהפרסר הצהיר על הקובץ. שדה מובנה, לא מזהה קשיח.
+  -- 🔴 דוח אשראי **אינו תזרים לעו"ש**: 26 שורות כ.א.ל כבר מיוצגות בשורת
+  --    ה-992.80 שבדוח העו"ש. חיבורן פרטנית לצפי הוא ספירה כפולה.
+  kind text not null check (kind in ('bank_statement', 'credit_report')),
+  -- תווית תצוגה שהפרסר מצהיר. **אינה מפתח שיוך** — ראו למעלה.
   source text not null,
-  -- המוסד שאליו החיוב שייך. ניתן לעריכה ידנית — הנרמול הוא ברירת מחדל.
-  institution text,
-  -- החשבון שמחויב. null = לא זוהה, ואז **מצהירים ולא מנחשים**.
+  -- 🎯 המזהה שנשאב מהקובץ עצמו. זה מפתח השיוך היחיד.
+  external_ref text,
+  ref_kind text check (ref_kind in ('account', 'card')),
+  -- החשבון המחויב. null = לא זוהה, ואז **מצהירים «אין דוח» ולא מנחשים**.
   account_id uuid references public.accounts (id) on delete set null,
-  -- 🎯 הסך הוא המפתח להתאמה מול שורת החיוב בדוח העו"ש
   stated_total_agorot bigint,
   parsed_total_agorot bigint not null,
   row_count integer not null default 0,
   occurred_from date,
   occurred_to date,
-  -- מתי החיוב ירד בפועל, אם זוהה. null = טרם ירד **או** לא ידוע.
+  -- תאריך הפקת/צילום הדוח
+  statement_date date,
+  -- «חיוב בתאריך» — מוצהר ב-1 מ-3 הקבצים בלבד
+  charge_date date,
+  -- מתי החיוב ירד בפועל. נגזר משורת החיוב בדוח העו"ש, לא מנוחש.
   debited_on date,
   imported_at timestamptz not null default now(),
   created_by uuid references auth.users (id) on delete set null
 );
+
+-- 🪤 `nulls not distinct` נדרש במפורש: בברירת המחדל של פוסטגרס שתי שורות
+--    עם `external_ref` ריק נחשבות שונות, והאילוץ לא היה תופס כלום דווקא
+--    במקרה שבו הקובץ לא הצהיר מזהה.
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint
+    where conname = 'import_batches_identity_key'
+      and conrelid = 'public.import_batches'::regclass
+  ) then
+    alter table public.import_batches
+      add constraint import_batches_identity_key
+      unique nulls not distinct (household_id, external_ref, parsed_total_agorot, statement_date);
+  end if;
+end $$;
 
 create index if not exists import_batches_household_idx
   on public.import_batches (household_id, imported_at desc);
@@ -1185,12 +1205,17 @@ create index if not exists import_batches_household_idx
 create index if not exists import_batches_open_idx
   on public.import_batches (household_id) where debited_on is null;
 
+create index if not exists import_batches_ref_idx
+  on public.import_batches (household_id, external_ref) where external_ref is not null;
+
 comment on table public.import_batches is
-  'אצוות ייבוא. הסך שלהן הוא המפתח להתאמה מול שורת החיוב בדוח העו"ש, ולכן לצפי.';
+  'אצוות ייבוא. המזהה שנשאב מהקובץ (external_ref) הוא מפתח השיוך לחשבון, ולכן לצפי.';
+comment on column public.import_batches.external_ref is
+  'המזהה כפי שהקובץ מצהיר: «חשבון: 363-313550» / «כרטיס:4003». לא שם בנק — נמדד שאף קובץ אינו מצהיר שם בנק.';
 comment on column public.import_batches.account_id is
   'החשבון המחויב. null אינו «אף חשבון» אלא «לא זוהה» — ואז האצווה מוצהרת ואינה מנוכה.';
-comment on column public.import_batches.debited_on is
-  'מתי החיוב ירד בפועל. null = טרם ירד או לא ידוע; ההבחנה נעשית מול תאריך היתרה.';
+comment on column public.import_batches.charge_date is
+  '«חיוב בתאריך» מהקובץ. nullable — נמדד שרק 1 מ-3 הדוחות מצהיר עליו.';
 
 alter table public.import_batches enable row level security;
 
@@ -1211,7 +1236,48 @@ drop policy if exists import_batches_delete on public.import_batches;
 create policy import_batches_delete on public.import_batches for delete to authenticated
 using (public.is_household_member(household_id));
 
--- ── 2. הקישור מתנועה לאצווה ────────────────────────────────────────────────
+-- ── 2. שורות החיוב המרוכז שבדוח העו"ש ──────────────────────────────────────
+-- 🔴 **למה טבלה נפרדת ולא שאילתה על `transactions`.** שורת חיוב הכרטיס
+--    בדוח העו"ש **אינה מיובאת** במכוון (`isCardCharge` ⇒ אינה מסומנת), כי
+--    הסכום כבר מפורט בדוח האשראי וסימונה הייתה סופרת אותו כסף פעמיים.
+--    ⇒ היא אינה קיימת ב-`transactions`, ולכן חייבת מקום משלה.
+create table if not exists public.import_batch_charges (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households (id) on delete cascade,
+  -- אצוות דוח העו"ש שממנה נקראה השורה
+  batch_id uuid not null references public.import_batches (id) on delete cascade,
+  -- מספר הכרטיס משורת «4003 - כרטיסי אשראי לי»
+  external_ref text not null,
+  amount_agorot bigint not null,
+  occurred_on date not null
+);
+
+create index if not exists import_batch_charges_lookup_idx
+  on public.import_batch_charges (household_id, external_ref, amount_agorot);
+
+comment on table public.import_batch_charges is
+  'שורות החיוב המרוכז מדוח העו"ש. (כרטיס, סכום) הוא מפתח ההתאמה לדוח אשראי — כרטיס לבדו מופיע 5 פעמים בדוח אחד.';
+
+alter table public.import_batch_charges enable row level security;
+
+drop policy if exists import_batch_charges_select on public.import_batch_charges;
+create policy import_batch_charges_select on public.import_batch_charges for select to authenticated
+using (public.is_household_member(household_id));
+
+drop policy if exists import_batch_charges_insert on public.import_batch_charges;
+create policy import_batch_charges_insert on public.import_batch_charges for insert to authenticated
+with check (public.is_household_member(household_id));
+
+drop policy if exists import_batch_charges_update on public.import_batch_charges;
+create policy import_batch_charges_update on public.import_batch_charges for update to authenticated
+using (public.is_household_member(household_id))
+with check (public.is_household_member(household_id));
+
+drop policy if exists import_batch_charges_delete on public.import_batch_charges;
+create policy import_batch_charges_delete on public.import_batch_charges for delete to authenticated
+using (public.is_household_member(household_id));
+
+-- ── 3. הקישור מתנועה לאצווה ────────────────────────────────────────────────
 -- 🎯 `on delete set null` ולא `cascade`: מחיקת אצווה אינה אמורה למחוק את
 --    התנועות שהמשתמש כבר סיווג. היא רק מבטלת את הקישור.
 alter table public.transactions
@@ -1222,3 +1288,9 @@ create index if not exists transactions_batch_idx
 
 comment on column public.transactions.import_batch_id is
   'האצווה שממנה יובאה התנועה. דרכה נגזר החשבון המחויב — לתנועה עצמה אין חשבון.';
+
+-- ── 4. אינדקס למזהה החשבון ─────────────────────────────────────────────────
+-- `accounts.external_ref` נוצרה ב-0011; כאן רק מאיצים את החיפוש שלה,
+-- שהוא הצעד הראשון בכל שיוך.
+create index if not exists accounts_external_ref_idx
+  on public.accounts (household_id, external_ref) where external_ref is not null;

@@ -3,6 +3,8 @@ import {
   type Matrix,
   type ParseResult,
   type ParsedRow,
+  extractAccountRef,
+  extractHeaderDate,
   findRow,
   headerIndex,
   isBlankRow,
@@ -107,9 +109,16 @@ export function parsePoalim(rows: Matrix): ParseResult {
 
   return {
     source: 'מסטרקארד דירקט — בנק הפועלים',
+    statementKind: 'credit_report',
     rows: out,
     statedTotal,
     parsedTotal: sumRows(out),
     notes,
+    // «מספר חשבון  12-556-568338  תאריך הפקה  24.04.2026»
+    // 🪤 זהו חשבון בנק ולא הכרטיס `9041` שבעמודה «שם כרטיס».
+    accountRef: extractAccountRef(rows),
+    // 🪤 נמדד: הפועלים **אינו** מצהיר «חיוב בתאריך», רק «תאריך הפקה».
+    chargeDate: extractHeaderDate(rows, ['חיוב בתאריך']),
+    statementDate: extractHeaderDate(rows, ['תאריך הפקה']),
   };
 }

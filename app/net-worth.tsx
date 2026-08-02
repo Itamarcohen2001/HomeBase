@@ -64,8 +64,6 @@ export default function NetWorth() {
   const [amount, setAmount] = useState('');
   const [overdrawn, setOverdrawn] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [batches, setBatches] = useState<nw.ImportBatch[]>([]);
-  const [fcAccounts, setFcAccounts] = useState<nw.ForecastAccount[]>([]);
 
   const load = useCallback(async () => {
     if (!householdId) return;
@@ -85,9 +83,6 @@ export default function NetWorth() {
       } catch {
         setClasses([]);
       }
-      // אצוות הייבוא (0012). בהיעדרן אין צפי, וזו ההתנהגות הנכונה.
-      setBatches(await nw.listImportBatches(householdId));
-      setFcAccounts(await nw.listForecastAccounts(householdId));
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון את החשבונות') });
     } finally {
@@ -116,19 +111,6 @@ export default function NetWorth() {
     }, null);
     return { total, unpriced, fromReport, oldest };
   }, [rows]);
-
-  /**
-   * 🎯 החלטה 13: הכותרת מציגה את ה**צפי**, והיתרה נשארת לידה כעוגן
-   *    **עם התאריך שלה**. כשאין במה להתאים — אין צפי, ומצהירים.
-   *
-   * 🔴 הניכוי מוגבל לאותו מוסד. אצווה שלא שויכה **אינה מנוכה** אלא
-   *    מוצהרת: ניכוי גורף היה מסמן את חיובי הבנק השני «טרם ירדו»
-   *    לצמיתות ומציג צפי שגוי בקביעות, בלי שום שגיאה.
-   */
-  const forecast = useMemo(
-    () => nw.buildForecastSummary(fcAccounts, batches),
-    [fcAccounts, batches],
-  );
 
   /**
    * פרוסות ההתפלגות. הלוגיקה יושבת ב-`networth.ts` כדי שתהיה ניתנת
@@ -238,19 +220,10 @@ export default function NetWorth() {
       {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
 
       <Card testID="hb-networth-total">
-        <Muted>{forecast.available ? 'סך הכול, צפי' : 'סך הכול'}</Muted>
+        <Muted>סך הכול</Muted>
         <H1 testID="hb-networth-total-amount" style={{ marginTop: spacing.xs }}>
-          {formatMoney(totals.total - forecast.pendingTotal)}
+          {formatMoney(totals.total)}
         </H1>
-
-        {/* 🎯 החלטה 13: היתרה נשארת כעוגן **עם התאריך שלה**, לא רק מספר. */}
-        {forecast.available ? (
-          <Body testID="hb-networth-anchor" style={{ marginTop: spacing.xs, fontSize: 13 }}>
-            {`לפי היתרה בפועל ${formatMoney(totals.total)}${
-              totals.oldest ? ` (${nw.formatCapturedAt(totals.oldest)})` : ''
-            }`}
-          </Body>
-        ) : null}
 
         <View style={{ ...rtlRow, gap: spacing.sm, flexWrap: 'wrap', marginTop: spacing.sm }}>
           <Badge icon="time-outline" color={nw.isStale(totals.oldest) ? colors.warning : colors.textMuted}>
@@ -267,24 +240,6 @@ export default function NetWorth() {
             </Badge>
           ) : null}
         </View>
-
-        {forecast.pending.length > 0 ? (
-          <Muted testID="hb-networth-forecast-note" style={{ marginTop: spacing.md, fontSize: 12 }}>
-            {`נוכו ${formatMoney(forecast.pendingTotal)} של חיובי אשראי שטרם ירדו מהחשבון: ${forecast.pending
-              .map((c) => `${c.source} ${formatMoney(c.amount)}`)
-              .join(' · ')}`}
-          </Muted>
-        ) : null}
-
-        {/* 🔴 אצווה שלא שויכה לחשבון **אינה מנוכה** — היא מוצהרת.
-            ניכוי גורף היה מסמן את חיובי הבנק השני «טרם ירדו» לצמיתות. */}
-        {forecast.unattributed.length > 0 ? (
-          <Muted testID="hb-networth-forecast-unattributed" style={{ marginTop: spacing.md, fontSize: 12 }}>
-            {`${forecast.unattributed
-              .map((c) => `${c.source} ${formatMoney(c.amount)}`)
-              .join(' · ')} — לא ידוע מאיזה חשבון הם יורדים, ולכן לא ניכינו אותם. שייכו את החשבון כדי שהצפי יהיה מלא.`}
-          </Muted>
-        ) : null}
 
         {totals.unpriced > 0 ? (
           <Muted testID="hb-networth-gap" style={{ marginTop: spacing.md, fontSize: 12 }}>

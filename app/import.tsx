@@ -10,7 +10,7 @@ import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
 import { formatDate, formatILS, monthEnd, monthLabel, monthStart } from '../src/lib/format';
 import { parseFile } from '../src/lib/import/parse';
-import { rowKind, type ParseResult } from '../src/lib/import/shared';
+import { cardRefFromCharge, rowKind, type ParseResult } from '../src/lib/import/shared';
 import {
   buildDraft,
   noteFor,
@@ -358,13 +358,32 @@ export default function Import() {
           userId: r.assignedTo ?? user.id,
           isShared: sharedAvailable && r.assignedTo === null,
         })),
-        // 🎯 האצווה היא מה שמאפשר את צפי העו"ש: היא נושאת את הסך, ודרכו
-        //    מותאמת שורת החיוב בדוח העו"ש לחשבון שממנו ירדה.
+        // 🎯 האצווה נושאת את מה שהקובץ הצהיר: המזהה (חשבון/כרטיס), הסך
+        //    והתאריכים. **שום שדה כאן אינו מוקלד** — ולכן אין מה לשכוח
+        //    ואין מה לנחש.
         result
           ? {
               source: result.source,
               statedTotalAgorot: result.statedTotal === null ? null : toAgorot(result.statedTotal),
               parsedTotalAgorot: toAgorot(result.parsedTotal),
+              kind: result.statementKind ?? 'credit_report',
+              ref: result.accountRef
+                ? { value: result.accountRef.ref, kind: result.accountRef.kind }
+                : null,
+              chargeDate: result.chargeDate ?? null,
+              statementDate: result.statementDate ?? null,
+              // שורות החיוב המרוכז — אינן מיובאות כתנועות, ולכן זה המקום
+              // היחיד שבו הן נשמרות.
+              cardCharges: result.rows
+                .filter((r) => r.isCardCharge)
+                .map((r) => ({
+                  ref: cardRefFromCharge(r.description),
+                  amountAgorot: toAgorot(r.amount),
+                  occurredOn: r.date,
+                }))
+                .filter((c): c is { ref: string; amountAgorot: number; occurredOn: string } =>
+                  Boolean(c.ref),
+                ),
             }
           : undefined,
       );

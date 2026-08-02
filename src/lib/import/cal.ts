@@ -3,6 +3,8 @@ import {
   type Matrix,
   type ParseResult,
   type ParsedRow,
+  extractAccountRef,
+  extractHeaderDate,
   findRow,
   headerIndex,
   looksLikeCardCharge,
@@ -81,9 +83,14 @@ export function parseCal(rows: Matrix): ParseResult {
 
   return {
     source: 'כ.א.ל / ויזה — אוצר החייל',
+    statementKind: 'credit_report',
     rows: out,
     statedTotal,
     parsedTotal: sumRows(out),
     notes,
+    // «כרטיס:4003 - ויזה כ.א.ל חודש החיוב: 02/07/2026»
+    accountRef: extractAccountRef(rows),
+    chargeDate: extractHeaderDate(rows, ['חיוב בתאריך', 'חודש החיוב']),
+    statementDate: extractHeaderDate(rows, ['חודש החיוב', 'תאריך']),
   };
 }

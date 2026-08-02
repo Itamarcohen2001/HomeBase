@@ -107,6 +107,11 @@ export default function Import() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [creditBatches, setCreditBatches] = useState<CreditBatchRef[]>([]);
+  /**
+   * 🔴 האם קישור האצוות בכלל זמין (0012 הורצה). ברירת המחדל `true` כדי
+   *    שההסבר הרגיל יוצג עד שנדע אחרת — הקריאה מעדכנת אותו מיד.
+   */
+  const [batchLinkage, setBatchLinkage] = useState(true);
   const [sharedAvailable, setSharedAvailable] = useState(false);
   const [pickerRowId, setPickerRowId] = useState<string | null>(null);
   const [assignRowId, setAssignRowId] = useState<string | null>(null);
@@ -204,14 +209,15 @@ export default function Import() {
           db.listTransactionsInRange(householdId, from, to),
           db.listImportRules(householdId).catch(() => [] as ImportRule[]),
           db.listMembers(householdId).catch(() => [] as HouseholdMember[]),
-          db.listCreditBatches(householdId).catch(() => [] as CreditBatchRef[]),
+          db.listCreditBatches(householdId).catch(() => ({ available: false, batches: [] })),
         ]);
         // הקטגוריות נמסרות במלואן — `buildDraft` מסנן לפי כיוון כל שורה.
         // סינון מוקדם להוצאות בלבד היה מפיל בשקט כלל שמצביע על קטגוריית הכנסה.
         knownRules.current = rules;
         setCategories(allCategories);
         setMembers(householdMembers);
-        setCreditBatches(creditBatchList);
+        setCreditBatches(creditBatchList.batches);
+        setBatchLinkage(creditBatchList.available);
         setResult(parsed);
         // 🔴 החלטה 20 מוחלת **כאן ולא ב-`draft.ts`**: שם נקבעת ברירת מחדל
         //    תחבירית, וכאן הכלל הסמנטי שדורש מצב מה-DB. שורת חיוב מרוכז
@@ -219,7 +225,7 @@ export default function Import() {
         setRows(
           applyAggregateRule(
             buildDraft(parsed.rows, { categories: allCategories, existing, rules }),
-            creditBatchList,
+            creditBatchList.batches,
           ).rows,
         );
         setFileName(name);
@@ -663,6 +669,7 @@ export default function Import() {
                   index={i}
                   first={i === 0}
                   superseded={isSuperseded(row)}
+                  batchLinkage={batchLinkage}
                   category={row.categoryId ? categoryById.get(row.categoryId) ?? null : null}
                   assignment={
                     sharedAvailable
@@ -767,6 +774,7 @@ function ImportRowItem({
   index,
   first,
   superseded,
+  batchLinkage,
   category,
   assignment,
   onToggle,
@@ -778,6 +786,8 @@ function ImportRowItem({
   first: boolean;
   /** 🔴 האם דוח האשראי שמפרט את השורה כבר יובא (החלטה 20) */
   superseded: boolean;
+  /** `false` ⇒ אין טבלת אצוות ⇒ אין להבטיח ביטול אוטומטי */
+  batchLinkage: boolean;
   category: Category | null;
   /** תווית השיוך, או `null` כשהמסד לא תומך בהוצאות משותפות */
   assignment: string | null;
@@ -789,7 +799,7 @@ function ImportRowItem({
   const reasons: string[] = [];
   if (row.duplicate) reasons.push('כבר קיימת אצלך תנועה זהה בתאריך ובסכום האלה');
   if (row.isRefund) reasons.push('זיכוי (החזר) אינו הוצאה ולכן לא ניתן לייבא אותו');
-  if (row.isCardCharge) reasons.push(aggregateNote(superseded));
+  if (row.isCardCharge) reasons.push(aggregateNote(superseded, batchLinkage));
 
   const detail = (row.detail ?? '').trim();
 

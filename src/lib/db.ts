@@ -701,18 +701,37 @@ async function saveBatchCharges(householdId: string, batchId: string, batch: Imp
  * 🎯 נטען **לפני** הצגת הטיוטה, כדי ששורת חיוב מרוכז תוצג נכון כבר בפעם
  *    הראשונה: כבויה אם יש לה פירוט, ומסומנת אם אין.
  */
-export async function listCreditBatches(householdId: string): Promise<CreditBatchRef[]> {
+/**
+ * אצוות האשראי הקיימות, **ובנפרד** האם המנגנון בכלל זמין.
+ *
+ * 🔴 ההבחנה הזו אינה קוסמטית. «אין אצוות» ו«הטבלה לא קיימת» מחזירות שתיהן
+ *    רשימה ריקה, ולכן שורת חיוב מרוכז תסומן כהוצאה בשני המקרים — וזה נכון.
+ *    אבל ההסבר שמוצג למשתמש **מבטיח** שייבוא דוח האשראי יבטל אותה, וההבטחה
+ *    הזו נכונה רק כשהטבלה קיימת. בלי 0012 אין אצווה להיתלות בה, `supersedeAggregates`
+ *    לא רצה, והמשתמש שסומך על ההבטחה יספור את אותו כסף פעמיים.
+ */
+export interface CreditBatchState {
+  /** `false` ⇒ 0012 טרם הורצה ⇒ אין ביטול אוטומטי, ואסור להבטיח אותו. */
+  available: boolean;
+  batches: CreditBatchRef[];
+}
+
+export async function listCreditBatches(householdId: string): Promise<CreditBatchState> {
   try {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('import_batches')
       .select('id, external_ref, parsed_total_agorot')
       .eq('household_id', householdId)
       .eq('kind', 'credit_report');
-    return (data ?? []) as unknown as CreditBatchRef[];
+    // 🪤 `supabase-js` **אינו זורק** על שגיאת PostgREST אלא מחזיר `error`.
+    //    ה-`catch` שלמטה אינו מכסה את מקרה הסכימה החסרה — הוא היה נראה
+    //    כאילו כן, וזו בדיוק צורת הביטחון המדומה שאנחנו מחסלים.
+    if (error) return { available: !isMissingTable(error), batches: [] };
+    return { available: true, batches: (data ?? []) as unknown as CreditBatchRef[] };
   } catch {
     // סכימה בלי 0012 ⇒ אין אצוות ⇒ שורות האגרגט נספרות, וזה הצד הבטוח:
     // חוסר ספירה מעוות את היתרה לצמיתות, כפילות נראית מיד.
-    return [];
+    return { available: false, batches: [] };
   }
 }
 

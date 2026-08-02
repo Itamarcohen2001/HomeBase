@@ -36,6 +36,9 @@ export interface AggregateCandidate {
   description: string;
   amount: number;
   isCardCharge?: boolean;
+  /** 🔴 שורה שכבר קיימת אצל המשתמש — ייבוא חוזר של אותו דוח */
+  duplicate?: boolean;
+  isRefund?: boolean;
 }
 
 export interface AggregateMatch {
@@ -88,6 +91,12 @@ export function applyAggregateRule<T extends AggregateCandidate & { selected: bo
       superseded += 1;
       return row.selected ? { ...row, selected: false } : row;
     }
+    // 🔴 **הכלל הזה גובר רק על ההחרגה של `isCardCharge`, ולא על השאר.**
+    //    מדדתי שבלי התנאי הזה ייבוא חוזר של אותו דוח עו"ש היה מסמן את
+    //    שורת ה-992.80 שוב — היא `duplicate`, אבל היא גם `isCardCharge`,
+    //    והכלל היה «משחזר» אותה ומכפיל את הכסף. בדיוק הכפילות שהוא נועד
+    //    למנוע, מהכיוון השני.
+    if (row.duplicate || row.isRefund) return row;
     restored += 1;
     return row.selected ? row : { ...row, selected: true };
   });

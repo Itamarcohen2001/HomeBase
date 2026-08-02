@@ -236,6 +236,7 @@ export async function addHolding(input: {
   quantity: number;
   asOf: string;
   statedValueAgorot?: number | null;
+  statedSharePct?: number | null;
 }): Promise<void> {
   unwrap(
     await supabase
@@ -248,11 +249,30 @@ export async function addHolding(input: {
           quantity: input.quantity,
           as_of: input.asOf,
           stated_value_agorot: input.statedValueAgorot ?? null,
+          stated_share_pct: input.statedSharePct ?? null,
         },
         { onConflict: 'account_id,security_id,as_of' },
       )
       .select('id'),
   );
+}
+
+/**
+ * מוחק אחזקות של החשבון שאינן ברשימת הניירות שנמסרה.
+ *
+ * 🔴 בלי זה נייר שנמכר נשאר לנצח: `listHoldings` לוקח את התאריך החדש ביותר
+ *    לכל נייר, ולכן שורה ישנה של נייר שכבר לא בתיק תמשיך להיספר בשקט.
+ */
+export async function deleteHoldingsNotIn(
+  accountId: string,
+  securityIds: string[],
+): Promise<number> {
+  const query = supabase.from('holdings').delete().eq('account_id', accountId);
+  const filtered = securityIds.length
+    ? query.not('security_id', 'in', `(${securityIds.join(',')})`)
+    : query;
+  const rows = unwrap(await filtered.select('id')) as unknown as { id: string }[];
+  return rows.length;
 }
 
 export async function deleteHolding(id: string): Promise<void> {
@@ -281,13 +301,24 @@ export async function searchSecurities(query: string): Promise<CatalogResult[]> 
   return res.results ?? [];
 }
 
-/** מוסיף נייר מהקטלוג לטבלה המקומית ומחזיר את השורה. */
-export async function resolveSecurity(entry: CatalogResult): Promise<Security> {
-  const res = await callMarketData<{ security: Security }>({
+/**
+ * מוסיף נייר לטבלה המקומית ומחזיר את השורה.
+ *
+ * `price_feed` אופציונלי: מסך החיפוש יודע אותו מהקטלוג, אבל קובץ אחזקות
+ * מוסר מספר נייר בלבד — ואז הפונקציה מוצאת אותו לפי המזהה.
+ */
+export async function resolveSecurity(entry: {
+  external_id: string;
+  price_feed?: PriceFeed | null;
+  name?: string | null;
+  symbol?: string | null;
+}): Promise<Security> {
+  const res = await callMarketData<{ security: Security; matched: boolean }>({
     action: 'resolve',
     external_id: entry.external_id,
-    price_feed: entry.price_feed,
-    name: entry.name,
+    price_feed: entry.price_feed ?? undefined,
+    name: entry.name ?? undefined,
+    symbol: entry.symbol ?? undefined,
   });
   return res.security;
 }

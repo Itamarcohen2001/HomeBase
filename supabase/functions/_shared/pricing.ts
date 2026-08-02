@@ -10,6 +10,8 @@ export interface SecurityRef {
   external_id: string;
   price_feed: PriceFeed;
   quote_currency?: string | null;
+  /** שם הנייר — ממנו נחלץ סימול זר כשפיד ת"א לא מחזיר מחיר */
+  name?: string | null;
 }
 
 export interface Quote {
@@ -306,6 +308,36 @@ export interface PriceRunResult {
   /** ניירות שהפיד לא החזיר להם מחיר — מוצהרים, לא נבלעים */
   failed: string[];
   fx: Record<string, number>;
+  /** ניירות שנפדו מ-Yahoo אחרי שפיד ת"א לא החזיר מחיר */
+  fallbacks: Array<{ external_id: string; symbol: string }>;
+}
+
+/**
+ * ציטוט עם נפילה-אחורה: אם פיד ת"א לא החזיר מחיר ושם הנייר נגמר בסימול
+ * זר בסוגריים, מנסים את Yahoo.
+ *
+ * 🔴 **הסדר קריטי.** החילוץ נמדד על כל 4,208 הניירות הסחירים והתאים בטעות
+ *    לאחד (0.024%). הוא בלתי מזיק **רק** משום שהוא נקרא אחרי שת"א נכשלה:
+ *    לנייר שת"א מתמחרת הוא לא ייקרא לעולם. אין להקדים אותו.
+ *
+ * 🪤 הזהות נשמרת: השורה שחוזרת נושאת את ה-`external_id` וה-`price_feed`
+ *    **המקוריים**, כי ה-Edge Function ממפה בחזרה לפי הצמד הזה.
+ */
+async function quoteWithFallback(
+  sec: SecurityRef,
+  fetchImpl: FetchLike,
+): Promise<{ quote: Quote; symbol: string | null } | null> {
+  const direct = await fetchQuote(sec, fetchImpl);
+  if (direct) return { quote: direct, symbol: null };
+  if (sec.price_feed === 'yahoo') return null;
+
+  const symbol = extractForeignSymbol(sec.name ?? '');
+  if (!symbol) return null;
+  const viaYahoo = await fetchQuote(
+    { external_id: symbol, price_feed: 'yahoo', quote_currency: null },
+    fetchImpl,
+  );
+  return viaYahoo ? { quote: viaYahoo, symbol } : null;
 }
 
 /**
@@ -318,14 +350,16 @@ export async function priceSecurities(
 ): Promise<PriceRunResult> {
   const priced: PricedRow[] = [];
   const failed: string[] = [];
+  const fallbacks: Array<{ external_id: string; symbol: string }> = [];
   const fx: Record<string, number> = { ILS: 1 };
 
   for (const sec of securities) {
-    const quote = await fetchQuote(sec, fetchImpl);
-    if (!quote) {
+    const got = await quoteWithFallback(sec, fetchImpl);
+    if (!got) {
       failed.push(sec.external_id);
       continue;
     }
+    const { quote, symbol } = got;
     const major = majorCurrency(quote.currency);
     if (!(major in fx)) {
       const rate = await fetchFxToIls(major, fetchImpl);
@@ -336,6 +370,7 @@ export async function priceSecurities(
       failed.push(sec.external_id);
       continue;
     }
+    if (symbol) fallbacks.push({ external_id: sec.external_id, symbol });
     priced.push({
       external_id: sec.external_id,
       price_feed: sec.price_feed,
@@ -346,5 +381,5 @@ export async function priceSecurities(
     });
   }
 
-  return { priced, failed, fx };
+  return { priced, failed, fx, fallbacks };
 }

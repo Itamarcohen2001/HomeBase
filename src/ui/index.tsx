@@ -401,10 +401,12 @@ export function InlineMessage({
   tone = 'error',
   children,
   style,
+  testID,
 }: {
   tone?: 'error' | 'success' | 'info';
   children: React.ReactNode;
   style?: ViewStyle;
+  testID?: string;
 }) {
   const palette = {
     error: { bg: colors.dangerSoft, fg: colors.danger, icon: 'alert-circle' as const },
@@ -415,6 +417,7 @@ export function InlineMessage({
   return (
     <View
       accessibilityLiveRegion="polite"
+      testID={testID}
       style={[
         {
           ...rtlRow,

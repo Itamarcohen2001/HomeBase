@@ -24,7 +24,9 @@
 // פעולות:
 //   { action: 'refresh' }                      — מתמחר כל נייר שמוחזק בפועל
 //   { action: 'search', query: 'לאומי' }        — חיפוש בקטלוג הבורסה
-//   { action: 'resolve', external_id, price_feed } — מוסיף נייר לקטלוג המקומי
+//   { action: 'resolve', external_id, price_feed?, name?, symbol? }
+//        מוסיף נייר לקטלוג המקומי. `price_feed` אופציונלי: קובץ אחזקות
+//        מוסר מספר נייר בלבד, והפיד נגזר מהקטלוג.
 
 // @ts-nocheck
 import { serve } from 'https://deno.land/std@0.208.0/http/server.ts';
@@ -83,19 +85,33 @@ serve(async (req) => {
     }
 
     if (action === 'resolve') {
+      const wanted = String(body.external_id ?? '');
+      if (!wanted) return json({ error: 'לא צוין מזהה נייר.' }, 400);
+      // הפיד אופציונלי: מסך החיפוש יודע אותו מהקטלוג, אבל קובץ אחזקות
+      // מוסר מספר נייר בלבד. כשהוא חסר מחפשים לפי המזהה בלבד.
+      const feed = (body.price_feed as string | undefined) ?? null;
       const entries = await getCatalog();
       const found = entries.find(
-        (e) => e.external_id === String(body.external_id ?? '') && e.price_feed === body.price_feed,
+        (e) => e.external_id === wanted && (feed === null || e.price_feed === feed),
       );
-      const entry = found ?? {
-        external_id: String(body.external_id ?? ''),
-        price_feed: body.price_feed ?? 'yahoo',
-        name: String(body.name ?? body.external_id ?? ''),
-        symbol: null,
-        isin: null,
-        category: null,
-      };
-      if (!entry.external_id) return json({ error: 'לא צוין מזהה נייר.' }, 400);
+
+      // 🪤 ברירת מחדל של `yahoo` למספר נייר של הבורסה הייתה מייצרת נייר
+      //    שלעולם לא יתומחר, בשקט. הצורה של המזהה היא הקובע.
+      const symbol = String(body.symbol ?? '').trim();
+      const fallbackFeed: 'tase_security' | 'yahoo' =
+        /^\d+$/.test(wanted) ? 'tase_security' : 'yahoo';
+      const useSymbol = !found && feed === null && /^[A-Z]{1,5}(\.[A-Z]{1,3})?$/.test(symbol);
+
+      const entry =
+        found ??
+        {
+          external_id: useSymbol ? symbol : wanted,
+          price_feed: feed ?? (useSymbol ? 'yahoo' : fallbackFeed),
+          name: String(body.name ?? wanted),
+          symbol: symbol || null,
+          isin: null,
+          category: null,
+        };
 
       const db = admin();
       const { data, error } = await db
@@ -114,7 +130,7 @@ serve(async (req) => {
         .select('id, external_id, price_feed, name, symbol')
         .single();
       if (error) throw new Error(error.message);
-      return json({ security: data });
+      return json({ security: data, matched: Boolean(found) });
     }
 
     // ── refresh ────────────────────────────────────────────────────────────
@@ -123,10 +139,10 @@ serve(async (req) => {
     // מתמחרים רק ניירות שמוחזקים בפועל — לא את כל הקטלוג.
     const { data: held, error: heldErr } = await db
       .from('holdings')
-      .select('security_id, securities!inner (id, external_id, price_feed, quote_currency)');
+      .select('security_id, securities!inner (id, external_id, price_feed, quote_currency, name)');
     if (heldErr) throw new Error(heldErr.message);
 
-    const byId = new Map<string, { id: string; external_id: string; price_feed: string; quote_currency: string }>();
+    const byId = new Map<string, { id: string; external_id: string; price_feed: string; quote_currency: string; name: string }>();
     for (const row of held ?? []) {
       const s = row.securities;
       if (s && !byId.has(s.id)) byId.set(s.id, s);
@@ -193,6 +209,7 @@ serve(async (req) => {
       ok: true,
       priced: result.priced.length,
       failed: result.failed.length,
+      fallbacks: result.fallbacks.length,
       fx: result.fx,
     });
   } catch (e) {

@@ -5,12 +5,14 @@
  *    אין בקוד ולו מספר נייר אחד — זו הדרישה הגנרית, והמסך הזה הוא ההוכחה
  *    שלה מול המשתמש.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import * as DocumentPicker from 'expo-document-picker';
 import { goBack } from '../../src/lib/nav';
 import { useHousehold } from '../../src/context/HouseholdContext';
 import * as nw from '../../src/lib/networth';
+import { parsePortfolioFile, type PortfolioHolding, type PortfolioParseResult } from '../../src/lib/portfolio/parse';
 import { formatMoney, shekelsToAgorot, toDateString } from '../../src/lib/format';
 import {
   Badge,
@@ -31,6 +33,14 @@ import {
 } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
 import { errorText } from '../../src/lib/authErrors';
+
+const WEB_ACCEPT =
+  '.xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv';
+const NATIVE_TYPES = [
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-excel',
+  'text/csv',
+];
 
 export default function AccountDetail() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -53,6 +63,14 @@ export default function AccountDetail() {
   const [picked, setPicked] = useState<nw.CatalogResult | null>(null);
   const [quantity, setQuantity] = useState('');
   const [addingHolding, setAddingHolding] = useState(false);
+
+  // ── ייבוא קובץ אחזקות ──────────────────────────────────────────────────────
+  const webInput = useRef<HTMLInputElement | null>(null);
+  const [pending, setPending] = useState<PortfolioParseResult | null>(null);
+  const [selected, setSelected] = useState<boolean[]>([]);
+  const [dropMissing, setDropMissing] = useState(true);
+  const [importing, setImporting] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!householdId || !id) return;
@@ -81,6 +99,12 @@ export default function AccountDetail() {
     [holdings],
   );
   const unpriced = useMemo(() => holdings.filter((h) => h.value_agorot === null).length, [holdings]);
+
+  const selectedCount = useMemo(() => selected.filter(Boolean).length, [selected]);
+  const selectedTotal = useMemo(
+    () => (pending ? pending.holdings.reduce((s, h, i) => (selected[i] ? s + h.statedValue : s), 0) : 0),
+    [pending, selected],
+  );
 
   async function onSaveBalance() {
     if (!account) return;
@@ -153,6 +177,119 @@ export default function AccountDetail() {
     }
   }
 
+  // ── ייבוא קובץ אחזקות ──────────────────────────────────────────────────────
+
+  /** ב-web יש אובייקט `File` אמיתי; בנייטיב מקבלים `file://` וקוראים דרך fetch. */
+  async function assetToBuffer(asset: DocumentPicker.DocumentPickerAsset): Promise<ArrayBuffer> {
+    if (asset.file) return asset.file.arrayBuffer();
+    const response = await fetch(asset.uri);
+    return response.arrayBuffer();
+  }
+
+  async function loadFile(name: string, data: ArrayBuffer) {
+    setMessage(null);
+    try {
+      const parsed = await parsePortfolioFile({ name, data });
+      setPending(parsed);
+      // 🔴 אף שורה לא נכתבת בלי אישור. הכול מסומן, והמשתמש מוריד סימון.
+      setSelected(parsed.holdings.map(() => true));
+    } catch (e) {
+      setPending(null);
+      setSelected([]);
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לקרוא את הקובץ') });
+    }
+  }
+
+  async function onPickPortfolio() {
+    setMessage(null);
+    if (Platform.OS === 'web') {
+      webInput.current?.click();
+      return;
+    }
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: NATIVE_TYPES,
+        multiple: false,
+        copyToCacheDirectory: true,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const asset = res.assets[0];
+      await loadFile(asset.name, await assetToBuffer(asset));
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לפתוח את הקובץ') });
+    }
+  }
+
+  function cancelImport() {
+    setPending(null);
+    setSelected([]);
+    setProgress(null);
+  }
+
+  async function onConfirmImport() {
+    if (!pending || !account || !householdId) return;
+    const chosen = pending.holdings.filter((_, i) => selected[i]);
+    if (!chosen.length) {
+      setMessage({ tone: 'error', text: 'לא נבחרה אף אחזקה לייבוא' });
+      return;
+    }
+    setImporting(true);
+    setMessage(null);
+    const asOf = toDateString(new Date());
+    const securityIds: string[] = [];
+    const unresolved: string[] = [];
+    try {
+      for (let i = 0; i < chosen.length; i++) {
+        const h = chosen[i];
+        setProgress(`מייבא ${i + 1} מתוך ${chosen.length}…`);
+        let security: nw.Security;
+        try {
+          security = await nw.resolveSecurity({
+            external_id: h.externalId,
+            price_feed: h.priceFeed,
+            name: h.name,
+            symbol: h.symbol,
+          });
+        } catch {
+          // נייר בודד שלא נפתר לא מפיל את כל הייבוא — הוא מדווח בסוף.
+          unresolved.push(h.name);
+          continue;
+        }
+        await nw.addHolding({
+          householdId,
+          accountId: account.id,
+          securityId: security.id,
+          quantity: h.quantity,
+          asOf,
+          statedValueAgorot: Math.round(h.statedValue * 100),
+          statedSharePct: h.sharePct,
+        });
+        securityIds.push(security.id);
+      }
+
+      let removed = 0;
+      if (dropMissing && securityIds.length) {
+        setProgress('מסיר אחזקות שאינן בקובץ…');
+        removed = await nw.deleteHoldingsNotIn(account.id, securityIds);
+      }
+
+      cancelImport();
+      await load();
+      const parts = [`יובאו ${securityIds.length} אחזקות`];
+      if (removed) parts.push(`והוסרו ${removed} שכבר אינן בקובץ`);
+      if (unresolved.length) parts.push(`${unresolved.length} ניירות לא זוהו ולא יובאו`);
+      setMessage({
+        tone: unresolved.length ? 'info' : 'success',
+        text: `${parts.join(', ')}. השווי יתעדכן בעדכון המחירים הבא.`,
+      });
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'הייבוא נכשל') });
+    } finally {
+      setImporting(false);
+      setProgress(null);
+    }
+  }
+
   async function onDeleteHolding(holding: nw.HoldingView) {
     const ok = await confirm({
       title: 'מחיקת אחזקה',
@@ -187,9 +324,141 @@ export default function AccountDetail() {
     );
   }
 
+  if (pending) {
+    return (
+      <Screen>
+        <PageHeader title="אישור ייבוא אחזקות" onBack={cancelImport} />
+
+        {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
+
+        <Card>
+          <Muted>{pending.source}</Muted>
+          <H2 testID="hb-portfolio-stated-total" style={{ marginTop: spacing.xs }}>
+            {formatMoney(Math.round(pending.statedTotal * 100))}
+          </H2>
+          <Muted style={{ marginTop: spacing.xs, fontSize: 12 }}>
+            {`${pending.holdings.length} אחזקות בקובץ · נכון ל-${toDateString(new Date())}`}
+          </Muted>
+          <Muted style={{ marginTop: spacing.xs, fontSize: 12 }}>
+            הסכומים כאן הם מה שכתוב בקובץ. אחרי הייבוא השווי יחושב לפי מחירי הבורסה
+            העדכניים, ולכן הוא עשוי להיות שונה.
+          </Muted>
+        </Card>
+
+        {pending.notes.map((note, i) => (
+          <InlineMessage key={i} tone="info" testID={`hb-portfolio-note-${i}`}>
+            {note}
+          </InlineMessage>
+        ))}
+
+        <Card>
+          <Checkbox
+            value={selected.every(Boolean)}
+            onValueChange={(v) => setSelected(pending.holdings.map(() => v))}
+            label="לסמן את כל האחזקות"
+            accessibilityLabel="לסמן את כל האחזקות"
+            testID="hb-portfolio-select-all"
+          />
+          <Divider />
+          <Checkbox
+            value={dropMissing}
+            onValueChange={setDropMissing}
+            label="להסיר אחזקות שאינן בקובץ"
+            hint="בלי זה נייר שמכרתם יישאר בחשבון וימשיך להיספר בשווי הכולל"
+            accessibilityLabel="להסיר אחזקות שאינן בקובץ"
+            testID="hb-portfolio-drop-missing"
+          />
+        </Card>
+
+        <Card>
+          {pending.holdings.map((h, i) => (
+            <View key={`${h.externalId}-${i}`}>
+              {i > 0 ? <Divider /> : null}
+              <View style={{ ...rtlRow, justifyContent: 'space-between', gap: spacing.md }}>
+                <View style={{ flexShrink: 1, minWidth: 0 }}>
+                  <Checkbox
+                    value={Boolean(selected[i])}
+                    onValueChange={(v) =>
+                      setSelected((prev) => prev.map((s, j) => (j === i ? v : s)))
+                    }
+                    label={h.name}
+                    accessibilityLabel={`ייבוא ${h.name}`}
+                    testID={`hb-portfolio-row-${i}`}
+                  />
+                  <View style={{ ...rtlRow, gap: spacing.xs, flexWrap: 'wrap', marginTop: 2 }}>
+                    <Muted style={{ fontSize: 12 }}>
+                      {`${h.quantity.toLocaleString('he-IL')} יחידות`}
+                    </Muted>
+                    {h.isFxCash ? (
+                      <Badge icon="cash-outline" color={colors.textMuted}>
+                        מזומן מט"ח
+                      </Badge>
+                    ) : null}
+                    {h.currency !== 'ILS' && !h.isFxCash ? (
+                      <Badge color={colors.textMuted}>{h.currency}</Badge>
+                    ) : null}
+                    {!h.reconciled ? (
+                      <Badge icon="alert-circle-outline" color={colors.warning}>
+                        השווי בקובץ אינו מסתדר
+                      </Badge>
+                    ) : null}
+                  </View>
+                </View>
+                <Body style={{ fontWeight: '800' }}>
+                  {formatMoney(Math.round(h.statedValue * 100))}
+                </Body>
+              </View>
+            </View>
+          ))}
+        </Card>
+
+        <Card>
+          <Body testID="hb-portfolio-summary" style={{ fontWeight: '700' }}>
+            {`${selectedCount} אחזקות · ${formatMoney(Math.round(selectedTotal * 100))}`}
+          </Body>
+          {progress ? (
+            <Muted style={{ marginTop: spacing.xs, fontSize: 12 }}>{progress}</Muted>
+          ) : null}
+          <Button
+            title="ייבוא לחשבון"
+            onPress={() => void onConfirmImport()}
+            loading={importing}
+            testID="hb-portfolio-confirm"
+            style={{ marginTop: spacing.md }}
+          />
+          <Button
+            title="ביטול"
+            variant="ghost"
+            onPress={cancelImport}
+            testID="hb-portfolio-cancel"
+          />
+        </Card>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
       <PageHeader title={account.name} onBack={() => goBack(router)} />
+
+      {/* input אמיתי ב-DOM: יציב לאוטומציה, ולא נמחק אחרי הבחירה */}
+      {Platform.OS === 'web' ? (
+        <input
+          ref={webInput}
+          type="file"
+          id="hb-portfolio-input"
+          data-testid="hb-portfolio-input"
+          aria-label="בחירת קובץ אחזקות"
+          accept={WEB_ACCEPT}
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            // איפוס הערך כדי שבחירה חוזרת באותו קובץ תפעיל onChange שוב
+            event.target.value = '';
+            if (file) void file.arrayBuffer().then((buf) => loadFile(file.name, buf));
+          }}
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none' }}
+        />
+      ) : null}
 
       {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
 
@@ -289,6 +558,22 @@ export default function AccountDetail() {
           ))}
         </Card>
       )}
+
+      <SectionTitle>ייבוא קובץ אחזקות</SectionTitle>
+      <Card testID="hb-portfolio-import">
+        <Muted style={{ fontSize: 13 }}>
+          אפשר להעלות את קובץ האחזקות שבית ההשקעות מייצא (Excel או CSV). הקובץ נקרא
+          ומוצג לאישור, ושום דבר לא נשמר לפני שמאשרים.
+        </Muted>
+        <Button
+          title="בחירת קובץ"
+          icon="cloud-upload-outline"
+          variant="secondary"
+          onPress={() => void onPickPortfolio()}
+          testID="hb-portfolio-pick"
+          style={{ marginTop: spacing.md }}
+        />
+      </Card>
 
       <SectionTitle>הוספת נייר ערך</SectionTitle>
       <Card testID="hb-security-search">

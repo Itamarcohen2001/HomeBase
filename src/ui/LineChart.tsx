@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Stop, Line, Text as SvgText, Circle, G } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Stop, Line, Text as SvgText, Circle } from 'react-native-svg';
 import { colors } from '../theme';
 
 export interface LineChartPoint {
@@ -126,35 +126,36 @@ export function LineChart({
           </Defs>
 
           {/* Grid lines & Y labels */}
-          {yTicks.map((val, i) => {
+          {yTicks.flatMap((val, i) => {
             const y = getY(val);
-            return (
-              <G key={`y-${i}`}>
-                <Line
-                  x1={paddingLeft}
-                  y1={y}
-                  x2={width - paddingRight}
-                  y2={y}
-                  stroke={colors.border}
-                  strokeWidth={1}
-                  strokeDasharray="4 4"
-                />
-                <SvgText
-                  x={paddingLeft - 10}
-                  y={y + 4}
-                  fill={colors.textMuted}
-                  fontSize={11}
-                  textAnchor="end"
-                >
-                  {formatYLabel(val)}
-                </SvgText>
-              </G>
-            );
+            return [
+              <Line
+                key={`yL-${i}`}
+                x1={paddingLeft}
+                y1={y}
+                x2={width - paddingRight}
+                y2={y}
+                stroke={colors.border}
+                strokeWidth={1}
+                strokeDasharray="4 4"
+              />,
+              <SvgText
+                key={`yT-${i}`}
+                x={paddingLeft - 10}
+                y={y + 4}
+                fill={colors.textMuted}
+                fontSize={11}
+                textAnchor="end"
+              >
+                {formatYLabel(val)}
+              </SvgText>
+            ];
           })}
 
           {/* X labels & points */}
-          {points.map((p, i) => {
+          {points.flatMap((p, i) => {
             const x = getX(i);
+            const elements = [];
 
             // Adjust anchor for first and last labels
             let anchor: 'start' | 'middle' | 'end' = 'middle';
@@ -164,18 +165,25 @@ export function LineChart({
               anchor = 'end';
             }
 
-            return (
-              <G key={`p-${i}`}>
-                {/* Tick mark */}
+            // Only show labels for first, last, and points in between
+            const shouldShowLabel = 
+              i === 0 || 
+              i === points.length - 1 || 
+              (points.length > 5 ? i % Math.ceil(points.length / 5) === 0 : true);
+
+            if (shouldShowLabel) {
+              elements.push(
                 <Line
+                  key={`pL-${i}`}
                   x1={x}
                   y1={paddingTop + chartHeight}
                   x2={x}
                   y2={paddingTop + chartHeight + 4}
                   stroke={colors.border}
                   strokeWidth={1}
-                />
+                />,
                 <SvgText
+                  key={`pT-${i}`}
                   x={x}
                   y={paddingTop + chartHeight + 16}
                   fill={colors.textMuted}
@@ -184,18 +192,22 @@ export function LineChart({
                 >
                   {formatXLabel(p.label)}
                 </SvgText>
+              );
+            }
 
-                {/* Point dot */}
-                <Circle
-                  cx={x}
-                  cy={getY(p.value)}
-                  r={3.5}
-                  fill={colors.surface}
-                  stroke={color}
-                  strokeWidth={2}
-                />
-              </G>
+            elements.push(
+              <Circle
+                key={`pC-${i}`}
+                cx={x}
+                cy={getY(p.value)}
+                r={3.5}
+                fill={colors.surface}
+                stroke={color}
+                strokeWidth={2}
+              />
             );
+
+            return elements;
           })}
 
           <Path d={areaD} fill="url(#grad)" />

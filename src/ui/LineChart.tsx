@@ -26,7 +26,8 @@ export function LineChart({
   // Handle single point by faking a straight line across the graph
   const points = data.length === 1 ? [data[0], data[0]] : data;
 
-  const minVal = Math.min(...points.map((p) => p.value));
+  const actualMinVal = Math.min(...points.map((p) => p.value));
+  const minVal = Math.min(0, actualMinVal);
   const maxVal = Math.max(...points.map((p) => p.value));
   
   // Logical jumps for Y axis

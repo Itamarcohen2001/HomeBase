@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { View } from 'react-native';
-import Svg, { Defs, LinearGradient, Path, Stop, Line, Text as SvgText, Circle } from 'react-native-svg';
+import Svg, { Defs, LinearGradient, Path, Stop, Line, Text as SvgText, Circle, G } from 'react-native-svg';
 import { colors } from '../theme';
 
 export interface LineChartPoint {
@@ -129,7 +129,7 @@ export function LineChart({
           {yTicks.map((val, i) => {
             const y = getY(val);
             return (
-              <React.Fragment key={`y-${i}`}>
+              <G key={`y-${i}`}>
                 <Line
                   x1={paddingLeft}
                   y1={y}
@@ -148,7 +148,7 @@ export function LineChart({
                 >
                   {formatYLabel(val)}
                 </SvgText>
-              </React.Fragment>
+              </G>
             );
           })}
 
@@ -165,7 +165,7 @@ export function LineChart({
             }
 
             return (
-              <React.Fragment key={`x-${i}`}>
+              <G key={`p-${i}`}>
                 {/* Tick mark */}
                 <Line
                   x1={x}
@@ -194,7 +194,7 @@ export function LineChart({
                   stroke={color}
                   strokeWidth={2}
                 />
-              </React.Fragment>
+              </G>
             );
           })}
 

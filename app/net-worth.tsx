@@ -14,6 +14,7 @@ import { goBack } from '../src/lib/nav';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
 import * as nw from '../src/lib/networth';
+import { useNetWorthTrend } from '../src/hooks/useNetWorthTrend';
 import { formatMoney, shekelsToAgorot } from '../src/lib/format';
 import {
   Badge,
@@ -26,6 +27,7 @@ import {
   H3,
   IconBubble,
   InlineMessage,
+  LineChart,
   Loading,
   Muted,
   PageHeader,
@@ -68,6 +70,18 @@ export default function NetWorth() {
   const [tracked, setTracked] = useState<nw.TrackedAccount[]>([]);
   const [txns, setTxns] = useState<nw.TrackedTransaction[]>([]);
   const [trackingSchemaOk, setTrackingSchemaOk] = useState(true);
+
+  const { data: trendData, loading: trendLoading, reload: reloadTrend } = useNetWorthTrend();
+
+  const monthlyTrendData = useMemo(() => {
+    if (!trendData || trendData.length === 0) return [];
+    const byMonth = new Map<string, { date: string, total_agorot: number }>();
+    for (const p of trendData) {
+      const month = p.date.substring(0, 7);
+      byMonth.set(month, p);
+    }
+    return Array.from(byMonth.values()).map(p => ({ label: p.date, value: p.total_agorot }));
+  }, [trendData]);
 
   const load = useCallback(async () => {
     if (!householdId) return;
@@ -222,9 +236,10 @@ export default function NetWorth() {
     <Screen
       refreshControl={
         <RefreshControl
-          refreshing={refreshing}
+          refreshing={refreshing || trendLoading}
           onRefresh={async () => {
             setRefreshing(true);
+            reloadTrend();
             await load();
             setRefreshing(false);
           }}
@@ -318,11 +333,31 @@ export default function NetWorth() {
         />
       </Card>
 
+      <Card style={{ marginTop: spacing.md }}>
+        <H3>מגמת שווי נטו</H3>
+        <Muted style={{ marginTop: spacing.xs, marginBottom: spacing.lg }}>התפתחות השווי הכולל לאורך זמן</Muted>
+        
+        {monthlyTrendData.length === 0 ? (
+          <View style={{ alignItems: 'center', padding: spacing.md }}>
+            <IconBubble icon="trending-up" size={48} color={colors.textMuted} />
+            <Body style={{ marginTop: spacing.md, fontWeight: 'bold' }}>אין עדיין נתוני היסטוריה</Body>
+            <Muted style={{ marginTop: spacing.xs, textAlign: 'center' }}>הנתונים יתחילו להיאסף החל מהיום בסוף יום המסחר</Muted>
+          </View>
+        ) : (
+          <View style={{ marginTop: spacing.md, marginHorizontal: -spacing.lg, marginBottom: -spacing.md }}>
+            <LineChart 
+              data={monthlyTrendData} 
+              height={220} 
+            />
+          </View>
+        )}
+      </Card>
+
       {/* 🔴 גם כשאין ולו פרוסה אחת — אם יש אחזקות בלי מחיר, זו בדיוק
           המצב שחייב להיאמר. תנאי `slices.length > 0` לבדו היה מסתיר
           את האזהרה דווקא כשהיא הכי נחוצה. */}
       {distribution.slices.length > 0 || distribution.unpriced > 0 ? (
-        <Card testID="hb-networth-distribution">
+        <Card testID="hb-networth-distribution" style={{ marginTop: spacing.md }}>
           <SectionTitle>התפלגות</SectionTitle>
           {distribution.slices.length > 0 ? (
             <View style={{ alignItems: 'center', marginBottom: spacing.lg }}>

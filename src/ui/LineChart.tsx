@@ -189,7 +189,7 @@ export function LineChart({
                   cx={x} 
                   cy={getY(p.value)} 
                   r={3.5} 
-                  fill={colors.card} 
+                  fill={colors.surface} 
                   stroke={color} 
                   strokeWidth={2} 
                 />

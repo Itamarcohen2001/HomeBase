@@ -29,32 +29,32 @@ export function LineChart({
   const actualMinVal = Math.min(...points.map((p) => p.value));
   const minVal = Math.min(0, actualMinVal);
   const maxVal = Math.max(...points.map((p) => p.value));
-  
+
   // Logical jumps for Y axis
   const minShekels = minVal / 100;
   const maxShekels = maxVal / 100;
   const rangeShekels = maxShekels - minShekels;
-  
+
   let stepShekels = 1000;
   if (rangeShekels > 0) {
-     const roughStep = rangeShekels / 4;
-     const mag = Math.pow(10, Math.floor(Math.log10(roughStep)));
-     const normalized = roughStep / mag;
-     let nice = 1;
-     if (normalized >= 5) nice = 5;
-     else if (normalized >= 2) nice = 2;
-     stepShekels = nice * mag;
+    const roughStep = rangeShekels / 4;
+    const mag = Math.pow(10, Math.floor(Math.log10(roughStep)));
+    const normalized = roughStep / mag;
+    let nice = 1;
+    if (normalized >= 5) nice = 5;
+    else if (normalized >= 2) nice = 2;
+    stepShekels = nice * mag;
   }
-  
+
   // Ensure we have some padding around the actual min/max
   const minTickShekels = Math.floor(minShekels / stepShekels) * stepShekels;
   const maxTickShekels = Math.ceil(maxShekels / stepShekels) * stepShekels;
-  
+
   const yTicks = [];
   for (let s = minTickShekels; s <= maxTickShekels; s += stepShekels) {
     yTicks.push(s * 100); // back to agorot
   }
-  
+
   // Just in case of 0 range
   if (yTicks.length === 1) {
     yTicks.push(yTicks[0] + stepShekels * 100);
@@ -130,20 +130,20 @@ export function LineChart({
             const y = getY(val);
             return (
               <React.Fragment key={`y-${i}`}>
-                <Line 
-                  x1={paddingLeft} 
-                  y1={y} 
-                  x2={width - paddingRight} 
-                  y2={y} 
-                  stroke={colors.border} 
-                  strokeWidth={1} 
-                  strokeDasharray="4 4" 
+                <Line
+                  x1={paddingLeft}
+                  y1={y}
+                  x2={width - paddingRight}
+                  y2={y}
+                  stroke={colors.border}
+                  strokeWidth={1}
+                  strokeDasharray="4 4"
                 />
-                <SvgText 
-                  x={paddingLeft - 10} 
-                  y={y + 4} 
-                  fill={colors.textMuted} 
-                  fontSize={11} 
+                <SvgText
+                  x={paddingLeft - 10}
+                  y={y + 4}
+                  fill={colors.textMuted}
+                  fontSize={11}
                   textAnchor="end"
                 >
                   {formatYLabel(val)}
@@ -155,7 +155,7 @@ export function LineChart({
           {/* X labels & points */}
           {points.map((p, i) => {
             const x = getX(i);
-            
+
             // Adjust anchor for first and last labels
             let anchor: 'start' | 'middle' | 'end' = 'middle';
             if (i === 0) {
@@ -175,24 +175,24 @@ export function LineChart({
                   stroke={colors.border}
                   strokeWidth={1}
                 />
-                <SvgText 
-                  x={x} 
-                  y={paddingTop + chartHeight + 16} 
-                  fill={colors.textMuted} 
-                  fontSize={11} 
+                <SvgText
+                  x={x}
+                  y={paddingTop + chartHeight + 16}
+                  fill={colors.textMuted}
+                  fontSize={11}
                   textAnchor={anchor}
                 >
                   {formatXLabel(p.label)}
                 </SvgText>
 
                 {/* Point dot */}
-                <Circle 
-                  cx={x} 
-                  cy={getY(p.value)} 
-                  r={3.5} 
-                  fill={colors.surface} 
-                  stroke={color} 
-                  strokeWidth={2} 
+                <Circle
+                  cx={x}
+                  cy={getY(p.value)}
+                  r={3.5}
+                  fill={colors.surface}
+                  stroke={color}
+                  strokeWidth={2}
                 />
               </React.Fragment>
             );

@@ -45,6 +45,12 @@
         "projectId": "ef6d0454-ebeb-445e-ac8d-a4832e35feb4"
       }
     },
-    "owner": "itamarco2001"
+    "owner": "itamarco2001",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ef6d0454-ebeb-445e-ac8d-a4832e35feb4"
+    }
   }
 }

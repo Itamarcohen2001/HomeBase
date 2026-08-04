@@ -130,6 +130,44 @@ export async function listAccountValues(householdId: string): Promise<AccountVal
   ) as unknown as AccountValue[];
 }
 
+export interface NetWorthTrendPoint {
+  date: string;
+  total_agorot: number;
+}
+
+export async function getNetWorthTrend(householdId: string): Promise<NetWorthTrendPoint[]> {
+  const [snapshotsRes, currentRes] = await Promise.all([
+    supabase
+      .from('account_snapshots')
+      .select('captured_on, total_agorot')
+      .eq('household_id', householdId)
+      .order('captured_on', { ascending: true }),
+    supabase
+      .from('net_worth_by_account')
+      .select('total_agorot')
+      .eq('household_id', householdId)
+  ]);
+
+  const rows = unwrap(snapshotsRes) as unknown as { captured_on: string; total_agorot: number }[];
+  const currentAccounts = unwrap(currentRes) as unknown as { total_agorot: number }[];
+
+  const byDate = new Map<string, number>();
+  for (const r of rows) {
+    byDate.set(r.captured_on, (byDate.get(r.captured_on) ?? 0) + r.total_agorot);
+  }
+
+  // Add today's current live value if it's not already in the snapshots
+  const today = new Date().toISOString().split('T')[0];
+  if (!byDate.has(today) && currentAccounts.length > 0) {
+    const currentTotal = currentAccounts.reduce((sum, acc) => sum + acc.total_agorot, 0);
+    byDate.set(today, currentTotal);
+  }
+
+  return Array.from(byDate.entries())
+    .map(([date, total_agorot]) => ({ date, total_agorot }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export async function addAccount(input: {
   householdId: string;
   userId: string;

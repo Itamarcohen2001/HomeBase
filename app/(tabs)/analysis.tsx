@@ -2,6 +2,7 @@ import React, { useMemo } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import { useMonthParam } from '../../src/hooks/useMonthParam';
+import { useNetWorthTrend } from '../../src/hooks/useNetWorthTrend';
 import { formatMoney } from '../../src/lib/format';
 import { splitByCategory, splitByPerson, totalOf } from '../../src/lib/analysis';
 import type { AnalysisSlice } from '../../src/lib/types';
@@ -13,6 +14,7 @@ import {
   H2,
   H3,
   IconBubble,
+  LineChart,
   MonthNav,
   Muted,
   Screen,
@@ -114,12 +116,28 @@ export default function Analysis() {
   // אותו חודש כמו במסך התנועות: הכתובת גוברת, והחודש המשותף מיישר בין הטאבים
   const [month, setMonth] = useMonthParam();
   const { transactions, summary, loading, reload } = useMonthData(month);
+  const { data: trendData, loading: trendLoading, reload: reloadTrend } = useNetWorthTrend();
+
+  const monthlyTrendData = useMemo(() => {
+    if (!trendData || trendData.length === 0) return [];
+    const byMonth = new Map<string, { date: string, total_agorot: number }>();
+    for (const p of trendData) {
+      const month = p.date.substring(0, 7);
+      byMonth.set(month, p);
+    }
+    return Array.from(byMonth.values()).map(p => ({ label: p.date, value: p.total_agorot }));
+  }, [trendData]);
+
+  const handleRefresh = () => {
+    reload();
+    reloadTrend();
+  };
 
   const byCategory = useMemo(() => splitByCategory(transactions), [transactions]);
   const byPerson = useMemo(() => splitByPerson(transactions), [transactions]);
 
   return (
-    <Screen refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={colors.primary} />}>
+    <Screen refreshControl={<RefreshControl refreshing={loading || trendLoading} onRefresh={handleRefresh} tintColor={colors.primary} />}>
       <H2 style={{ marginBottom: spacing.md }}>ניתוח</H2>
 
       <Card style={{ paddingVertical: spacing.md }}>
@@ -133,6 +151,7 @@ export default function Analysis() {
           </View>
         </MonthNav>
       </Card>
+
 
       <ChartCard
         testID="hb-chart-categories"
@@ -153,6 +172,26 @@ export default function Analysis() {
         emptyTitle="אין עדיין הוצאות בחודש הזה"
         emptySubtitle="הפיצול בין בני הבית יופיע כאן אחרי ההוצאה הראשונה"
       />
+
+      <Card>
+        <H3>מגמת שווי נטו</H3>
+        <Muted style={{ marginTop: spacing.xs, marginBottom: spacing.lg }}>התפתחות השווי הכולל לאורך זמן</Muted>
+        
+        {monthlyTrendData.length === 0 ? (
+          <View style={{ alignItems: 'center', padding: spacing.md }}>
+            <IconBubble icon="trending-up" size={48} color={colors.textMuted} />
+            <Body style={{ marginTop: spacing.md, fontWeight: 'bold' }}>אין עדיין נתוני היסטוריה</Body>
+            <Muted style={{ marginTop: spacing.xs, textAlign: 'center' }}>הנתונים יתחילו להיאסף החל מהיום בסוף יום המסחר</Muted>
+          </View>
+        ) : (
+          <View style={{ marginTop: spacing.md, marginHorizontal: -spacing.lg, marginBottom: -spacing.md }}>
+            <LineChart 
+              data={monthlyTrendData} 
+              height={220} 
+            />
+          </View>
+        )}
+      </Card>
     </Screen>
   );
 }

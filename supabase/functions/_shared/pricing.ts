@@ -47,7 +47,12 @@ const SECURITY_URL = (id: string) =>
 const FUND_URL = (id: string) =>
   `https://mayaapi.tase.co.il/api/fund/details?fundId=${encodeURIComponent(id)}&lang=2`;
 const YAHOO_URL = (sym: string) =>
-  `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`;
+  `https://query2.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}`;
+
+// 🔴 Yahoo blocks requests without a browser-like User-Agent from cloud servers.
+export const YAHOO_HEADERS: Record<string, string> = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+};
 
 // ── נורמליזציה למטבע ──────────────────────────────────────────────────────
 // 🪤 הבורסה בת"א מצטטת באגורות: 7239 = ‏72.39 ₪. אותה מלכודת קיימת ב-GBp
@@ -189,7 +194,7 @@ export async function fetchQuote(sec: SecurityRef, fetchImpl: FetchLike): Promis
     };
   }
 
-  const j = (await getJson(fetchImpl, YAHOO_URL(sec.external_id))) as MetaShape | null;
+  const j = (await getJson(fetchImpl, YAHOO_URL(sec.external_id), YAHOO_HEADERS)) as MetaShape | null;
   const meta = j?.chart?.result?.[0]?.meta;
   if (!meta) return null;
   const rate = num(meta.regularMarketPrice) ?? num(meta.previousClose);
@@ -205,7 +210,7 @@ export async function fetchQuote(sec: SecurityRef, fetchImpl: FetchLike): Promis
 /** שער חליפין למטבע כלשהו מול השקל. גנרי — `USDILS=X`, `EURILS=X`, … */
 export async function fetchFxToIls(base: string, fetchImpl: FetchLike): Promise<number | null> {
   if (base === 'ILS') return 1;
-  const j = (await getJson(fetchImpl, YAHOO_URL(`${base}ILS=X`))) as MetaShape | null;
+  const j = (await getJson(fetchImpl, YAHOO_URL(`${base}ILS=X`), YAHOO_HEADERS)) as MetaShape | null;
   const meta = j?.chart?.result?.[0]?.meta;
   if (!meta) return null;
   const rate = num(meta.regularMarketPrice) ?? num(meta.previousClose);

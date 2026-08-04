@@ -23,6 +23,7 @@ import {
   Checkbox,
   Field,
   H1,
+  H3,
   IconBubble,
   InlineMessage,
   Loading,
@@ -251,11 +252,9 @@ export default function NetWorth() {
             «מצב התחלתי ומשם עוקבים» — ולכן צריך לראות מאיפה מתחילים. */}
         {tracking.available && tracking.delta !== 0 ? (
           <Body testID="hb-networth-anchor" style={{ marginTop: spacing.xs, fontSize: 13 }}>
-            {`לפי היתרה ${formatMoney(tracking.anchor)}${
-              tracking.anchorDate ? ` מ-${nw.formatCapturedAt(tracking.anchorDate)}` : ''
-            }, ${tracking.delta < 0 ? 'פחות' : 'ועוד'} ${formatMoney(Math.abs(tracking.delta))} ${
-              tracking.delta < 0 ? 'שיצאו' : 'שנכנסו'
-            } מאז`}
+            {`לפי היתרה ${formatMoney(tracking.anchor)}${tracking.anchorDate ? ` מ-${nw.formatCapturedAt(tracking.anchorDate)}` : ''
+              }, ${tracking.delta < 0 ? 'פחות' : 'ועוד'} ${formatMoney(Math.abs(tracking.delta))} ${tracking.delta < 0 ? 'שיצאו' : 'שנכנסו'
+              } מאז`}
           </Body>
         ) : null}
 

@@ -13,6 +13,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { goBack } from '../src/lib/nav';
 import { useAuth } from '../src/context/AuthContext';
 import { useHousehold } from '../src/context/HouseholdContext';
+import { useTheme } from '../src/context/ThemeContext';
 import * as nw from '../src/lib/networth';
 import { useNetWorthTrend } from '../src/hooks/useNetWorthTrend';
 import { formatMoney, shekelsToAgorot } from '../src/lib/format';
@@ -34,7 +35,7 @@ import {
   Screen,
   SectionTitle,
 } from '../src/ui';
-import { colors, rtlRow, spacing } from '../src/theme';
+import { rtlRow, spacing } from '../src/theme';
 import { Donut } from '../src/ui/Donut';
 import type { AnalysisSlice } from '../src/lib/types';
 import { errorText } from '../src/lib/authErrors';
@@ -51,6 +52,7 @@ export default function NetWorth() {
   const router = useRouter();
   const { user } = useAuth();
   const { householdId } = useHousehold();
+  const { colors } = useTheme();
 
   const [ready, setReady] = useState(false);
   const [schemaOk, setSchemaOk] = useState(true);
@@ -552,6 +554,7 @@ function AccountRow({
   isTransactionAccount: boolean;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
   const meta = KIND_ICON[row.kind] ?? KIND_ICON.bank;
   const holdings = Number(row.holdings_agorot ?? 0);
   const balance = Number(row.balance_agorot ?? 0);

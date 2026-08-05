@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View } from 'react-native';
+import { Platform, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop, Line, Text as SvgText, Circle } from 'react-native-svg';
 import { colors } from '../theme';
 
@@ -46,16 +46,14 @@ export function LineChart({
     stepShekels = nice * mag;
   }
 
-  // Ensure we have some padding around the actual min/max
   const minTickShekels = Math.floor(minShekels / stepShekels) * stepShekels;
   const maxTickShekels = Math.ceil(maxShekels / stepShekels) * stepShekels;
 
-  const yTicks = [];
+  const yTicks: number[] = [];
   for (let s = minTickShekels; s <= maxTickShekels; s += stepShekels) {
-    yTicks.push(s * 100); // back to agorot
+    yTicks.push(s * 100);
   }
 
-  // Just in case of 0 range
   if (yTicks.length === 1) {
     yTicks.push(yTicks[0] + stepShekels * 100);
     yTicks.unshift(yTicks[0] - stepShekels * 100);
@@ -65,15 +63,13 @@ export function LineChart({
   const actualMaxTarget = yTicks[yTicks.length - 1];
   const actualRange = actualMaxTarget - actualMinTarget;
 
-  // Chart area dimensions
-  const paddingLeft = 55; // Space for Y axis labels
+  const paddingLeft = 55;
   const paddingRight = 15;
   const paddingTop = 20;
-  const paddingBottom = 30; // Space for X axis labels
+  const paddingBottom = 30;
   const chartWidth = Math.max(0, width - paddingLeft - paddingRight);
   const chartHeight = Math.max(0, height - paddingTop - paddingBottom);
 
-  // Normalization helper
   const getY = (val: number) => {
     if (actualRange === 0) return paddingTop + chartHeight / 2;
     return paddingTop + chartHeight - ((val - actualMinTarget) / actualRange) * chartHeight;
@@ -91,10 +87,8 @@ export function LineChart({
     })
     .join(' ');
 
-  // Gradient polygon
   const areaD = `${pathD} L ${paddingLeft + chartWidth} ${paddingTop + chartHeight} L ${paddingLeft} ${paddingTop + chartHeight} Z`;
 
-  // Format Y label (e.g. 10000000 agorot -> 100K ₪)
   const formatYLabel = (agorot: number) => {
     const shekels = Math.round(agorot / 100);
     if (Math.abs(shekels) >= 1000000) return `${(shekels / 1000000).toFixed(1)}M ₪`;
@@ -102,7 +96,6 @@ export function LineChart({
     return `${shekels} ₪`;
   };
 
-  // Format X label (e.g. "2026-08-04" -> "08/26")
   const formatXLabel = (dateStr: string) => {
     const parts = dateStr.split('-');
     if (parts.length >= 2) {
@@ -111,6 +104,111 @@ export function LineChart({
     return dateStr;
   };
 
+  const shouldShowLabel = (i: number) =>
+    i === 0 ||
+    i === points.length - 1 ||
+    (points.length > 5 ? i % Math.ceil(points.length / 5) === 0 : true);
+
+  // ─── Web: use native browser SVG (react-native-svg has issues on web) ─────
+  if (Platform.OS === 'web') {
+    const gradId = 'lc-grad';
+    return (
+      <View
+        style={{ height, width: '100%', overflow: 'hidden' }}
+        onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
+      >
+        {width > 0 &&
+          React.createElement(
+            'svg',
+            { width, height, viewBox: `0 0 ${width} ${height}`, style: { display: 'block' } },
+            // defs
+            React.createElement(
+              'defs',
+              null,
+              React.createElement(
+                'linearGradient',
+                { id: gradId, x1: '0', y1: '0', x2: '0', y2: '1' },
+                React.createElement('stop', { offset: '0', stopColor: color, stopOpacity: '0.25' }),
+                React.createElement('stop', { offset: '1', stopColor: color, stopOpacity: '0' })
+              )
+            ),
+            // Y grid lines + labels
+            ...yTicks.flatMap((val, i) => {
+              const y = getY(val);
+              return [
+                React.createElement('line', {
+                  key: `yL-${i}`,
+                  x1: paddingLeft, y1: y,
+                  x2: width - paddingRight, y2: y,
+                  stroke: colors.border, strokeWidth: 1, strokeDasharray: '4 4',
+                }),
+                React.createElement(
+                  'text',
+                  {
+                    key: `yT-${i}`,
+                    x: paddingLeft - 10, y: y + 4,
+                    fill: colors.textMuted, fontSize: 11, textAnchor: 'end',
+                  },
+                  formatYLabel(val)
+                ),
+              ];
+            }),
+            // X tick marks + labels + dots
+            ...points.flatMap((p, i) => {
+              const x = getX(i);
+              const anchor = i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle';
+              const els: React.ReactElement[] = [];
+              if (shouldShowLabel(i)) {
+                els.push(
+                  React.createElement('line', {
+                    key: `pL-${i}`,
+                    x1: x, y1: paddingTop + chartHeight,
+                    x2: x, y2: paddingTop + chartHeight + 4,
+                    stroke: colors.border, strokeWidth: 1,
+                  }),
+                  React.createElement(
+                    'text',
+                    {
+                      key: `pT-${i}`,
+                      x, y: paddingTop + chartHeight + 16,
+                      fill: colors.textMuted, fontSize: 11, textAnchor: anchor,
+                    },
+                    formatXLabel(p.label)
+                  )
+                );
+              }
+              els.push(
+                React.createElement('circle', {
+                  key: `pC-${i}`,
+                  cx: x, cy: getY(p.value),
+                  r: 3.5, fill: colors.surface, stroke: color, strokeWidth: 2,
+                })
+              );
+              return els;
+            }),
+            // Area fill (on top of grid, below dots handled by order)
+            React.createElement('path', { key: 'area', d: areaD, fill: `url(#${gradId})` }),
+            // Line stroke
+            React.createElement('path', {
+              key: 'line',
+              d: pathD, fill: 'none',
+              stroke: color, strokeWidth: 2.5,
+              strokeLinejoin: 'round', strokeLinecap: 'round',
+            }),
+            // Dots again on top of fill
+            ...points.map((p, i) =>
+              React.createElement('circle', {
+                key: `pCTop-${i}`,
+                cx: getX(i), cy: getY(p.value),
+                r: 3.5, fill: colors.surface, stroke: color, strokeWidth: 2,
+              })
+            )
+          )}
+      </View>
+    );
+  }
+
+  // ─── Native: use react-native-svg ─────────────────────────────────────────
   return (
     <View
       style={{ height, width: '100%', overflow: 'hidden' }}
@@ -125,93 +223,67 @@ export function LineChart({
             </LinearGradient>
           </Defs>
 
-          {/* Grid lines & Y labels */}
           {yTicks.flatMap((val, i) => {
             const y = getY(val);
             return [
               <Line
                 key={`yL-${i}`}
-                x1={paddingLeft}
-                y1={y}
-                x2={width - paddingRight}
-                y2={y}
-                stroke={colors.border}
-                strokeWidth={1}
-                strokeDasharray="4 4"
+                x1={paddingLeft} y1={y}
+                x2={width - paddingRight} y2={y}
+                stroke={colors.border} strokeWidth={1} strokeDasharray="4 4"
               />,
               <SvgText
                 key={`yT-${i}`}
-                x={paddingLeft - 10}
-                y={y + 4}
-                fill={colors.textMuted}
-                fontSize={11}
-                textAnchor="end"
+                x={paddingLeft - 10} y={y + 4}
+                fill={colors.textMuted} fontSize={11} textAnchor="end"
               >
                 {formatYLabel(val)}
-              </SvgText>
+              </SvgText>,
             ];
           })}
 
-          {/* X labels & points */}
           {points.flatMap((p, i) => {
             const x = getX(i);
-            const elements = [];
-
-            // Adjust anchor for first and last labels
-            let anchor: 'start' | 'middle' | 'end' = 'middle';
-            if (i === 0) {
-              anchor = 'start';
-            } else if (i === points.length - 1) {
-              anchor = 'end';
-            }
-
-            // Only show labels for first, last, and points in between
-            const shouldShowLabel = 
-              i === 0 || 
-              i === points.length - 1 || 
-              (points.length > 5 ? i % Math.ceil(points.length / 5) === 0 : true);
-
-            if (shouldShowLabel) {
-              elements.push(
+            const anchor: 'start' | 'middle' | 'end' =
+              i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle';
+            const els: React.ReactElement[] = [];
+            if (shouldShowLabel(i)) {
+              els.push(
                 <Line
                   key={`pL-${i}`}
-                  x1={x}
-                  y1={paddingTop + chartHeight}
-                  x2={x}
-                  y2={paddingTop + chartHeight + 4}
-                  stroke={colors.border}
-                  strokeWidth={1}
+                  x1={x} y1={paddingTop + chartHeight}
+                  x2={x} y2={paddingTop + chartHeight + 4}
+                  stroke={colors.border} strokeWidth={1}
                 />,
                 <SvgText
                   key={`pT-${i}`}
-                  x={x}
-                  y={paddingTop + chartHeight + 16}
-                  fill={colors.textMuted}
-                  fontSize={11}
-                  textAnchor={anchor}
+                  x={x} y={paddingTop + chartHeight + 16}
+                  fill={colors.textMuted} fontSize={11} textAnchor={anchor}
                 >
                   {formatXLabel(p.label)}
                 </SvgText>
               );
             }
-
-            elements.push(
+            els.push(
               <Circle
                 key={`pC-${i}`}
-                cx={x}
-                cy={getY(p.value)}
-                r={3.5}
-                fill={colors.surface}
-                stroke={color}
-                strokeWidth={2}
+                cx={x} cy={getY(p.value)}
+                r={3.5} fill={colors.surface} stroke={color} strokeWidth={2}
               />
             );
-
-            return elements;
+            return els;
           })}
 
           <Path d={areaD} fill="url(#grad)" />
           <Path d={pathD} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+
+          {points.map((p, i) => (
+            <Circle
+              key={`pCTop-${i}`}
+              cx={getX(i)} cy={getY(p.value)}
+              r={3.5} fill={colors.surface} stroke={color} strokeWidth={2}
+            />
+          ))}
         </Svg>
       )}
     </View>

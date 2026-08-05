@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { RefreshControl, View } from 'react-native';
+import {  RefreshControl, View } from 'react-native';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import { useMonthParam } from '../../src/hooks/useMonthParam';
 import { useNetWorthTrend } from '../../src/hooks/useNetWorthTrend';
@@ -17,7 +17,7 @@ import {
   MonthNav,
   Muted,
   Screen,
-} from '../../src/ui';
+  GlobalHeaderActions } from '../../src/ui';
 import { colors, rtlRow, spacing } from '../../src/theme';
 
 function Legend({ slices }: { slices: AnalysisSlice[] }) {
@@ -125,7 +125,10 @@ export default function Analysis() {
 
   return (
     <Screen refreshControl={<RefreshControl refreshing={loading} onRefresh={handleRefresh} tintColor={colors.primary} />}>
-      <H2 style={{ marginBottom: spacing.md }}>ניתוח</H2>
+      <View style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', marginBottom: spacing.md, alignItems: 'center' }}>
+        <H2>ניתוח</H2>
+        <GlobalHeaderActions />
+      </View>
 
       <Card style={{ paddingVertical: spacing.md }}>
         <MonthNav month={month} onChange={setMonth}>

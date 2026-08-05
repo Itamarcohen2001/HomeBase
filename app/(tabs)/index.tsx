@@ -4,9 +4,10 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useHousehold } from '../../src/context/HouseholdContext';
+import { useTheme } from '../../src/context/ThemeContext';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import { daysLeftInMonth, formatDate, formatMoney, monthLabel, monthStart } from '../../src/lib/format';
-import {
+import { 
   Body,
   Card,
   EmptyState,
@@ -16,14 +17,16 @@ import {
   ProgressBar,
   Screen,
   SectionTitle,
+  GlobalHeaderActions
 } from '../../src/ui';
-import { colors, layout, radius, rtlRow, rtlText, shadow, spacing } from '../../src/theme';
+import { layout, radius, rtlRow, rtlText, shadow, spacing } from '../../src/theme';
 
 export default function Home() {
   const router = useRouter();
   const month = monthStart();
   const insets = useSafeAreaInsets();
   const { household } = useHousehold();
+  const { colors, isDark, toggleTheme } = useTheme();
   const { summary, transactions, loading, error, reload } = useMonthData(month);
 
   const recent = useMemo(() => transactions.slice(0, 5), [transactions]);
@@ -42,14 +45,7 @@ export default function Home() {
             <H2 numberOfLines={1}>{household?.name ?? 'משק הבית שלי'}</H2>
             <Muted>{monthLabel(month)}</Muted>
           </View>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="החשבון שלי"
-            onPress={() => router.push('/(tabs)/more')}
-            hitSlop={10}
-          >
-            <IconBubble icon="person-circle" color={colors.primary} size={38} />
-          </Pressable>
+          <GlobalHeaderActions />
         </View>
 
         {error ? (

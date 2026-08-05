@@ -1,3 +1,4 @@
+import { useTheme } from '../../src/context/ThemeContext';
 import React, { useMemo, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -5,12 +6,13 @@ import { useMonthData } from '../../src/hooks/useMonthData';
 import { useMonthParam } from '../../src/hooks/useMonthParam';
 import { formatDate, formatMoney } from '../../src/lib/format';
 import type { Kind } from '../../src/lib/types';
-import { Badge, Body, Card, EmptyState, H2, IconBubble, Muted, MonthNav, Screen } from '../../src/ui';
-import { colors, radius, rtlRow, spacing } from '../../src/theme';
+import {  Badge, Body, Card, EmptyState, H2, IconBubble, Muted, MonthNav, Screen , GlobalHeaderActions } from '../../src/ui';
+import { radius, rtlRow, spacing } from '../../src/theme';
 
 type Filter = 'all' | Kind;
 
 export default function History() {
+  const { colors } = useTheme();
   const router = useRouter();
   // החודש נשמר בכתובת ומשותף לטאבים, כדי שמסכים אחרים (למשל הייבוא) יוכלו
   // לפתוח את המסך ישירות על החודש שאליו שייכות התנועות שהם יצרו — ושמעבר
@@ -25,7 +27,10 @@ export default function History() {
   );
   return (
     <Screen refreshControl={<RefreshControl refreshing={loading} onRefresh={reload} tintColor={colors.primary} />}>
-      <H2 style={{ marginBottom: spacing.md }}>תנועות</H2>
+      <View style={{ flexDirection: 'row-reverse', justifyContent: 'space-between', marginBottom: spacing.md, alignItems: 'center' }}>
+        <H2>תנועות</H2>
+        <GlobalHeaderActions />
+      </View>
 
       {/* ניווט בין חודשים — ב-RTL: "הקודם" בימין, "הבא" בשמאל */}
       <Card style={{ paddingVertical: spacing.md }}>

@@ -1,7 +1,9 @@
+import { useTheme } from '../context/ThemeContext';
+import { lightColors } from '../theme';
 import React, { useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, View, Text, Pressable } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop, Line, Text as SvgText, Circle } from 'react-native-svg';
-import { colors } from '../theme';
+
 
 export interface LineChartPoint {
   label: string;
@@ -11,13 +13,15 @@ export interface LineChartPoint {
 export function LineChart({
   data,
   height = 220,
-  color = colors.primary,
+  color = lightColors.primary,
 }: {
   data: LineChartPoint[];
   height?: number;
   color?: string;
 }) {
+  const { colors } = useTheme();
   const [width, setWidth] = useState(0);
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   if (data.length === 0) {
     return <View style={{ height, width: '100%' }} />;
@@ -109,12 +113,76 @@ export function LineChart({
     i === points.length - 1 ||
     (points.length > 5 ? i % Math.ceil(points.length / 5) === 0 : true);
 
+  // ─── Interactive Overlay & Stripes ─────────────────────────────────────────
+  const renderOverlay = () => {
+    if (activeIndex === null || width === 0) return null;
+    const p = points[activeIndex];
+    const x = getX(activeIndex);
+    const y = getY(p.value);
+
+    const tooltipWidth = 100;
+    let tooltipLeft = x - tooltipWidth / 2;
+    if (tooltipLeft < 10) tooltipLeft = 10;
+    if (tooltipLeft > width - tooltipWidth - 10) tooltipLeft = width - tooltipWidth - 10;
+
+    const formattedVal = (p.value / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+
+    return (
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, pointerEvents: 'none' }}>
+        <View style={{ position: 'absolute', left: x - 1, top: paddingTop, height: chartHeight, width: 2, backgroundColor: color, opacity: 0.2 }} />
+        <View style={{ position: 'absolute', left: x - 5, top: y - 5, height: 10, width: 10, borderRadius: 5, backgroundColor: colors.surface, borderColor: color, borderWidth: 2 }} />
+        <View
+          style={{
+            position: 'absolute', left: tooltipLeft, top: Math.max(0, y - 50),
+            backgroundColor: colors.surface, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6,
+            shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 4, shadowOffset: { width: 0, height: 2 },
+            elevation: 4, borderWidth: 1, borderColor: colors.border, alignItems: 'center', minWidth: tooltipWidth
+          }}
+        >
+          <Text style={{ fontSize: 13, fontWeight: 'bold', color: colors.text }}>{formattedVal} ₪</Text>
+          <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 2 }}>{p.label}</Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderTouchStripes = () => {
+    if (points.length === 0 || width === 0) return null;
+    return (
+      <View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}>
+        {points.map((p, i) => {
+          const x = getX(i);
+          const prevX = i === 0 ? 0 : getX(i - 1);
+          const nextX = i === points.length - 1 ? width : getX(i + 1);
+          
+          const leftBound = i === 0 ? 0 : (x + prevX) / 2;
+          const rightBound = i === points.length - 1 ? width : (x + nextX) / 2;
+          const stripeWidth = rightBound - leftBound;
+
+          return (
+            <Pressable
+              key={`stripe-${i}`}
+              style={{
+                position: 'absolute',
+                left: leftBound,
+                width: stripeWidth,
+                top: 0,
+                bottom: 0,
+              }}
+              onPress={() => setActiveIndex(activeIndex === i ? null : i)}
+            />
+          );
+        })}
+      </View>
+    );
+  };
+
   // ─── Web: use native browser SVG (react-native-svg has issues on web) ─────
   if (Platform.OS === 'web') {
     const gradId = 'lc-grad';
     return (
       <View
-        style={{ height, width: '100%', overflow: 'hidden' }}
+        style={{ height, width: '100%', overflow: 'hidden', position: 'relative' }}
         onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
       >
         {width > 0 &&
@@ -204,6 +272,8 @@ export function LineChart({
               })
             )
           )}
+        {renderOverlay()}
+        {renderTouchStripes()}
       </View>
     );
   }
@@ -211,7 +281,7 @@ export function LineChart({
   // ─── Native: use react-native-svg ─────────────────────────────────────────
   return (
     <View
-      style={{ height, width: '100%', overflow: 'hidden' }}
+      style={{ height, width: '100%', overflow: 'hidden', position: 'relative' }}
       onLayout={(e) => setWidth(e.nativeEvent.layout.width)}
     >
       {width > 0 && (
@@ -286,6 +356,8 @@ export function LineChart({
           ))}
         </Svg>
       )}
+      {renderOverlay()}
+      {renderTouchStripes()}
     </View>
   );
 }

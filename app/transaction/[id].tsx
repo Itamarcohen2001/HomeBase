@@ -1,3 +1,4 @@
+import { useTheme } from '../../src/context/ThemeContext';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -27,10 +28,11 @@ import {
   useDialog,
   type AssignableMember,
 } from '../../src/ui';
-import { colors, radius, rtlRow, spacing } from '../../src/theme';
+import { radius, rtlRow, spacing } from '../../src/theme';
 import { errorText } from '../../src/lib/authErrors';
 
 export default function EditTransaction() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { confirm } = useDialog();

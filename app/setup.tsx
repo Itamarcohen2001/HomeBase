@@ -1,3 +1,4 @@
+import { useTheme } from '../src/context/ThemeContext';
 import React, { useCallback, useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -6,10 +7,11 @@ import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
 import type { PendingInvite } from '../src/lib/types';
 import { Body, Button, Card, Field, H1, H3, InlineMessage, Muted, Screen } from '../src/ui';
-import { colors, rtlRow, spacing } from '../src/theme';
+import { rtlRow, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
 
 export default function Setup() {
+  const { colors } = useTheme();
   const { user, signOut } = useAuth();
   const { createHousehold, refreshHouseholds } = useHousehold();
   const [name, setName] = useState('');

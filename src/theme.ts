@@ -1,4 +1,4 @@
-export const colors = {
+export const lightColors = {
   primary: '#2E9E6B',
   primaryDark: '#238055',
   primarySoft: '#E9F6EF',
@@ -15,6 +15,26 @@ export const colors = {
   expense: '#D8534F',
   white: '#FFFFFF',
 };
+
+export const darkColors: typeof lightColors = {
+  primary: '#2E9E6B', // Keep primary brand color
+  primaryDark: '#45C085', // Brighter for better contrast on dark
+  primarySoft: '#1B402D', // Very dark green tint for backgrounds
+  bg: '#0F1412', // Very dark greenish-grey for main background
+  surface: '#1C2622', // Slightly lighter for cards
+  text: '#F5F5F5',
+  textMuted: '#B8C7C0',
+  textFaint: '#8FA19A',
+  border: '#3A4A43',
+  danger: '#EF6864',
+  dangerSoft: '#5E2C2A',
+  warning: '#F5B047',
+  income: '#36BA7D',
+  expense: '#EF6864',
+  white: '#FFFFFF', // Keep white for things that need to stay white
+};
+
+export const colors = lightColors;
 
 /**
  * סקאלת מרווחים אחת לכל האפליקציה. אין להמציא ערכים אקראיים —
@@ -66,12 +86,12 @@ export const shadow = {
 } as const;
 
 export const font = {
-  h1: { fontSize: 30, fontWeight: '800' as const, color: colors.text },
-  h2: { fontSize: 22, fontWeight: '700' as const, color: colors.text },
-  h3: { fontSize: 17, fontWeight: '700' as const, color: colors.text },
-  body: { fontSize: 15, fontWeight: '500' as const, color: colors.text },
-  small: { fontSize: 13, fontWeight: '500' as const, color: colors.textMuted },
-  tiny: { fontSize: 11, fontWeight: '600' as const, color: colors.textFaint },
+  h1: { fontSize: 30, fontWeight: '800' as const, color: lightColors.text },
+  h2: { fontSize: 24, fontWeight: '700' as const, color: lightColors.text },
+  h3: { fontSize: 20, fontWeight: '600' as const, color: lightColors.text },
+  body: { fontSize: 16, fontWeight: '400' as const, color: lightColors.text },
+  small: { fontSize: 14, fontWeight: '400' as const, color: lightColors.textMuted },
+  bold: { fontSize: 16, fontWeight: '600' as const, color: lightColors.text },
 };
 
 /**

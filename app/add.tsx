@@ -1,3 +1,4 @@
+import { useTheme } from '../src/context/ThemeContext';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,10 +13,11 @@ import * as db from '../src/lib/db';
 import { formatDate, shekelsToAgorot, toDateString } from '../src/lib/format';
 import type { Kind } from '../src/lib/types';
 import { AmountInput, Body, Button, Card, Checkbox, Field, H2, IconBubble, InlineMessage, Muted } from '../src/ui';
-import { colors, layout, radius, rtlRow, spacing } from '../src/theme';
+import { layout, radius, rtlRow, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
 
 export default function AddTransaction() {
+  const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();

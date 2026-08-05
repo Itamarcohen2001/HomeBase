@@ -1,11 +1,13 @@
+import { useTheme } from '../src/context/ThemeContext';
 import React from 'react';
 import { View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Body, Card, H1, Muted, Screen } from '../src/ui';
-import { colors, spacing } from '../src/theme';
+import { spacing } from '../src/theme';
 
 /** מוצג כשאין עדיין מפתחות Supabase בקובץ .env */
 export default function Welcome() {
+  const { colors } = useTheme();
   return (
     <Screen>
       <View style={{ alignItems: 'center', marginTop: spacing.xxl, marginBottom: spacing.xl }}>

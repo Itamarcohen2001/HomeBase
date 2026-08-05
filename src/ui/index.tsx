@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import React from 'react';
 import {
   ActivityIndicator,
@@ -12,7 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, font, layout, radius, rtlRow, rtlText, shadow, spacing } from '../theme';
+import { font, layout, radius, rtlRow, rtlText, shadow, spacing } from '../theme';
+import { useTheme } from "../context/ThemeContext";
 
 export { DialogProvider, useDialog } from './dialog';
 export { Donut } from './Donut';
@@ -45,6 +47,8 @@ export function Checkbox({
   accessibilityLabel?: string;
   style?: ViewStyle;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return (
     <Pressable
       accessibilityRole="checkbox"
@@ -104,13 +108,16 @@ export function Checkbox({
 // ── Badge (תג קטן) ──────────────────────────────────────────────────────────
 export function Badge({
   children,
-  color = colors.textMuted,
+  color,
   icon,
 }: {
   children: React.ReactNode;
   color?: string;
   icon?: keyof typeof Ionicons.glyphMap;
 }) {
+    const { colors } = useTheme();
+  if (color === undefined) color = colors.textMuted;
+    const s = useStyles(colors);
   return (
     <View
       style={{
@@ -147,6 +154,8 @@ export function Screen({
   refreshControl?: React.ReactElement<any>;
   floatingAction?: boolean;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   const insets = useSafeAreaInsets();
   // התוכן חייב להסתיים מעל הכפתור הצף, אחרת הוא מכסה את השורה האחרונה
   const bottomGap = floatingAction
@@ -183,15 +192,17 @@ export function PageHeader({
   onBack: () => void;
   action?: React.ReactNode;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return (
     <View style={{ ...rtlRow, justifyContent: 'space-between', marginBottom: spacing.lg }}>
       <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
         <Pressable accessibilityRole="button" accessibilityLabel="חזרה" onPress={onBack} hitSlop={12}>
           <Ionicons name="arrow-forward" size={24} color={colors.text} />
         </Pressable>
-        <Text style={[font.h2, rtlText, { flexShrink: 1 }]}>{title}</Text>
+        <Text style={[font.h2, rtlText, { flexShrink: 1, color: colors.text }]}>{title}</Text>
       </View>
-      {action}
+      <View style={{ flexDirection: 'row-reverse', gap: 12, alignItems: 'center' }}>{action}<GlobalHeaderActions /></View>
     </View>
   );
 }
@@ -210,6 +221,8 @@ export function Card({
   accessibilityLabel?: string;
   testID?: string;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   if (onPress) {
     return (
       <Pressable
@@ -233,35 +246,51 @@ export function Card({
 // ── Text helpers ────────────────────────────────────────────────────────────
 type TextProps = { children: React.ReactNode; style?: any; numberOfLines?: number; testID?: string };
 
-export const H1 = (p: TextProps) => (
-  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h1, rtlText, p.style]}>
+export const H1 = (p: TextProps) => {
+  const { colors } = useTheme();
+  return (
+    <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h1, { color: colors.text }, rtlText, p.style]}>
     {p.children}
   </Text>
-);
-export const H2 = (p: TextProps) => (
-  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h2, rtlText, p.style]}>
+  );
+};
+export const H2 = (p: TextProps) => {
+  const { colors } = useTheme();
+  return (
+    <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h2, { color: colors.text }, rtlText, p.style]}>
     {p.children}
   </Text>
-);
-export const H3 = (p: TextProps) => (
-  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h3, rtlText, p.style]}>
+  );
+};
+export const H3 = (p: TextProps) => {
+  const { colors } = useTheme();
+  return (
+    <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.h3, { color: colors.text }, rtlText, p.style]}>
     {p.children}
   </Text>
-);
-export const Body = (p: TextProps) => (
-  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.body, rtlText, p.style]}>
+  );
+};
+export const Body = (p: TextProps) => {
+  const { colors } = useTheme();
+  return (
+    <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.body, { color: colors.text }, rtlText, p.style]}>
     {p.children}
   </Text>
-);
-export const Muted = (p: TextProps) => (
-  <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.small, rtlText, p.style]}>
+  );
+};
+export const Muted = (p: TextProps) => {
+  const { colors } = useTheme();
+  return (
+    <Text testID={p.testID} numberOfLines={p.numberOfLines} style={[font.small, { color: colors.textMuted }, rtlText, p.style]}>
     {p.children}
   </Text>
-);
+  );
+};
 
 // ── Section title ───────────────────────────────────────────────────────────
 /** כותרת ביניים עם מרווח אחיד — מונע פערים אקראיים בין המסכים */
 export function SectionTitle({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+    const { colors } = useTheme();
   return (
     <View
       style={{
@@ -298,6 +327,8 @@ export function IconText({
   children: React.ReactNode;
   style?: ViewStyle;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return (
     <View style={[{ ...rtlRow, gap }, style]}>
       <Ionicons name={icon} size={size} color={color ?? colors.textMuted} />
@@ -331,6 +362,8 @@ export function Button({
   /** ברירת מחדל: הכותרת. שימושי כשיש כמה כפתורים זהים ברשימה */
   accessibilityLabel?: string;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   const isDisabled = disabled || loading;
   const palette = {
     primary: { bg: colors.primary, fg: colors.white, border: colors.primary },
@@ -377,13 +410,15 @@ export function TextLink({
   title,
   onPress,
   style,
-  color = colors.primary,
+  color,
 }: {
   title: string;
   onPress: () => void;
   style?: ViewStyle;
   color?: string;
 }) {
+    const { colors } = useTheme();
+  if (color === undefined) color = colors.primary;
   return (
     <Pressable
       accessibilityRole="link"
@@ -409,6 +444,8 @@ export function InlineMessage({
   style?: ViewStyle;
   testID?: string;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   const palette = {
     error: { bg: colors.dangerSoft, fg: colors.danger, icon: 'alert-circle' as const },
     success: { bg: colors.primarySoft, fg: colors.primaryDark, icon: 'checkmark-circle' as const },
@@ -445,6 +482,8 @@ export function Field({
   error,
   ...props
 }: TextInputProps & { label?: string; hint?: string; error?: string | null }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   const [focused, setFocused] = React.useState(false);
   const borderColor = error ? colors.danger : focused ? colors.primary : colors.border;
 
@@ -498,6 +537,8 @@ export function AmountInput({
   placeholder?: string;
   accessibilityLabel?: string;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   const [focused, setFocused] = React.useState(false);
 
   return (
@@ -547,6 +588,8 @@ export function AmountInput({
 
 // ── Progress bar ────────────────────────────────────────────────────────────
 export function ProgressBar({ ratio, color }: { ratio: number; color?: string }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   const clamped = Math.max(0, Math.min(1, isFinite(ratio) ? ratio : 0));
   const over = ratio > 1;
   return (
@@ -571,6 +614,8 @@ export function IconBubble({
   color: string;
   size?: number;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return (
     <View
       style={{
@@ -599,6 +644,8 @@ export function EmptyState({
   title: string;
   subtitle?: string;
 }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return (
     <View style={{ alignItems: 'center', paddingVertical: spacing.lg }}>
       <Ionicons name={icon} size={36} color={colors.textFaint} />
@@ -609,6 +656,8 @@ export function EmptyState({
 }
 
 export function Loading({ label = 'טוען…' }: { label?: string }) {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return (
     <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl }}>
       <ActivityIndicator color={colors.primary} size="large" />
@@ -618,10 +667,12 @@ export function Loading({ label = 'טוען…' }: { label?: string }) {
 }
 
 export function Divider() {
+    const { colors } = useTheme();
+    const s = useStyles(colors);
   return <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.md }} />;
 }
 
-const s = StyleSheet.create({
+const useStyles = (colors: any) => StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   card: {
     backgroundColor: colors.surface,
@@ -660,3 +711,34 @@ const s = StyleSheet.create({
   },
   fill: { height: 8, borderRadius: 4 },
 });
+
+
+export function GlobalHeaderActions() {
+  const { colors, toggleTheme, isDark } = useTheme();
+  const router = useRouter();
+  
+  return (
+    <View style={{ flexDirection: 'row-reverse', gap: spacing.md }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="החלף עיצוב"
+        onPress={toggleTheme}
+        hitSlop={10}
+      >
+        <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name={isDark ? 'sunny' : 'moon'} size={20} color={colors.primary} />
+        </View>
+      </Pressable>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="החשבון שלי"
+        onPress={() => router.push('/(tabs)/more')}
+        hitSlop={10}
+      >
+        <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="person" size={20} color={colors.primary} />
+        </View>
+      </Pressable>
+    </View>
+  );
+}

@@ -1,3 +1,4 @@
+import { useTheme } from '../src/context/ThemeContext';
 import React, { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -19,10 +20,11 @@ import {
   Screen,
   useDialog,
 } from '../src/ui';
-import { colors, rtlRow, spacing } from '../src/theme';
+import { rtlRow, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
 
 export default function Settings() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { user, signOut } = useAuth();
   const { confirm } = useDialog();

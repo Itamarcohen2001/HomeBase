@@ -1,10 +1,12 @@
+import { useTheme } from '../../src/context/ThemeContext';
 import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, layout, spacing } from '../../src/theme';
+import { layout, spacing } from '../../src/theme';
 
 export default function TabsLayout() {
+  const { colors } = useTheme();
   // במסך מלא (PWA באייפון / מכשירים עם נאץ') צריך להוסיף את גובה
   // מחוון הבית לגובה הסרגל, אחרת הכפתורים נחתכים.
   const insets = useSafeAreaInsets();

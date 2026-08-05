@@ -24,10 +24,12 @@ import {
   Screen,
   useDialog,
 } from '../src/ui';
-import { colors, radius, rtlRow, spacing } from '../src/theme';
+import { lightColors, radius, rtlRow, spacing } from '../src/theme';
+import { useTheme } from '../src/context/ThemeContext';
 import { errorText } from '../src/lib/authErrors';
 
 export default function Recurring() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { confirm } = useDialog();
   const { householdId, bumpVersion } = useHousehold();
@@ -230,6 +232,7 @@ function RuleEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { colors } = useTheme();
   const { user } = useAuth();
   const { householdId } = useHousehold();
   const [title, setTitle] = useState('');

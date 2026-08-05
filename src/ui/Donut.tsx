@@ -1,8 +1,9 @@
 import React from 'react';
 import { View } from 'react-native';
 import Svg, { Circle, G, Path } from 'react-native-svg';
+import { useTheme } from '../context/ThemeContext';
 import type { AnalysisSlice } from '../lib/types';
-import { colors } from '../theme';
+import { lightColors } from '../theme';
 
 const TAU = Math.PI * 2;
 
@@ -52,6 +53,7 @@ export function Donut({
   /** תוכן במרכז הטבעת (סכום כולל וכדומה) */
   children?: React.ReactNode;
 }) {
+  const { colors } = useTheme();
   const total = slices.reduce((sum, s) => sum + s.amount, 0);
   const cx = size / 2;
   const cy = size / 2;
@@ -90,7 +92,7 @@ export function Donut({
             />
           ) : (
             paths.map((p) => (
-              <Path key={p.key} d={p.d} fill={p.color} stroke={colors.surface} strokeWidth={1.5} />
+              <Path key={p.key} d={p.d} fill={p.color} stroke={lightColors.surface} strokeWidth={1.5} />
             ))
           )}
         </G>

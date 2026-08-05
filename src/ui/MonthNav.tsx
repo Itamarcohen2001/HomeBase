@@ -1,8 +1,9 @@
+import { useTheme } from '../context/ThemeContext';
 import React from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { addMonths, monthLabel, monthStart } from '../lib/format';
-import { colors, font, rtlRow, rtlText, spacing } from '../theme';
+import { font, rtlRow, rtlText, spacing } from '../theme';
 
 /**
  * ניווט בין חודשים — רכיב אחד לכל המסכים (תנועות, ניתוח).
@@ -19,6 +20,7 @@ export function MonthNav({
   /** שורה נוספת מתחת לבורר (סיכומים וכדומה) */
   children?: React.ReactNode;
 }) {
+  const { colors } = useTheme();
   const isCurrentMonth = month === monthStart();
 
   return (
@@ -33,7 +35,7 @@ export function MonthNav({
         >
           <Ionicons name="chevron-forward" size={22} color={colors.primary} />
         </Pressable>
-        <Text style={[font.body, rtlText, { fontWeight: '700' }]}>{monthLabel(month)}</Text>
+        <Text style={[font.body, rtlText, { fontWeight: '700', color: colors.text }]}>{monthLabel(month)}</Text>
         <Pressable
           accessibilityRole="button"
           accessibilityLabel="החודש הבא"

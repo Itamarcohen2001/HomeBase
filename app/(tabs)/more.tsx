@@ -1,11 +1,12 @@
+import { useTheme } from '../../src/context/ThemeContext';
 import React, { useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { useHousehold } from '../../src/context/HouseholdContext';
-import { Body, Card, H2, IconBubble, InlineMessage, Muted, Screen, useDialog } from '../../src/ui';
-import { colors, rtlRow, spacing } from '../../src/theme';
+import {  Body, Card, H2, IconBubble, InlineMessage, Muted, Screen, useDialog , GlobalHeaderActions } from '../../src/ui';
+import { rtlRow, spacing } from '../../src/theme';
 import { errorText } from '../../src/lib/authErrors';
 
 type Row = {
@@ -27,6 +28,7 @@ const ROWS: Row[] = [
 ];
 
 export default function More() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { user, signOut } = useAuth();
   const { household } = useHousehold();

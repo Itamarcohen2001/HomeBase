@@ -6,8 +6,8 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, useAuth } from '../src/context/AuthContext';
 import { HouseholdProvider, useHousehold } from '../src/context/HouseholdContext';
+import { ThemeProvider, useTheme } from '../src/context/ThemeContext';
 import { DialogProvider, Loading } from '../src/ui';
-import { colors } from '../src/theme';
 
 // אנחנו מיישרים ידנית ל-RTL בכל רכיב (textAlign / row-reverse),
 // כדי שההתנהגות תהיה זהה ב-iOS, ב-Android ובוובי. ראה גם app/+html.tsx.
@@ -16,6 +16,7 @@ I18nManager.allowRTL(false);
 function Gate() {
   const { session, loading: authLoading, configured } = useAuth();
   const { householdId, loading: hhLoading } = useHousehold();
+  const { colors } = useTheme();
   const segments = useSegments();
   const router = useRouter();
   const navigationState = useRootNavigationState();
@@ -71,13 +72,15 @@ function Gate() {
   );
 }
 
-export default function RootLayout() {
+function MainApp() {
+  const { isDark } = useTheme();
+  
   return (
     <SafeAreaProvider>
       <Head>
         <title>HomeBase — תקציב משק הבית</title>
       </Head>
-      <StatusBar style="dark" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <AuthProvider>
         <HouseholdProvider>
           <DialogProvider>
@@ -86,5 +89,13 @@ export default function RootLayout() {
         </HouseholdProvider>
       </AuthProvider>
     </SafeAreaProvider>
+  );
+}
+
+export default function RootLayout() {
+  return (
+    <ThemeProvider>
+      <MainApp />
+    </ThemeProvider>
   );
 }

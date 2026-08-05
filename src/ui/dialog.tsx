@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, font, radius, rtlRow, rtlText, shadow, spacing } from '../theme';
+import { lightColors, font, radius, rtlRow, rtlText, shadow, spacing } from '../theme';
+import { useTheme } from '../context/ThemeContext';
 
 /**
  * Alert.alert של react-native הוא no-op מוחלט ב-react-native-web:
@@ -39,12 +40,13 @@ type DialogState =
   | null;
 
 const TONE_ICON: Record<NonNullable<NotifyOptions['tone']>, { icon: keyof typeof Ionicons.glyphMap; color: string }> = {
-  info: { icon: 'information-circle', color: colors.primary },
-  success: { icon: 'checkmark-circle', color: colors.primary },
-  error: { icon: 'alert-circle', color: colors.danger },
+  info: { icon: 'information-circle', color: lightColors.primary },
+  success: { icon: 'checkmark-circle', color: lightColors.primary },
+  error: { icon: 'alert-circle', color: lightColors.danger },
 };
 
 export function DialogProvider({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
   const [state, setState] = useState<DialogState>(null);
   const resolver = useRef<((value: boolean) => void) | null>(null);
 
@@ -116,7 +118,7 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
                     size={22}
                     color={tone?.color ?? (destructive ? colors.danger : colors.primary)}
                   />
-                  <Text style={[font.h3, rtlText, { flexShrink: 1 }]}>{state.title}</Text>
+                  <Text style={[font.h3, rtlText, { flexShrink: 1, color: colors.text }]}>{state.title}</Text>
                 </View>
                 {state.message ? (
                   <Text style={[font.body, rtlText, { color: colors.textMuted, marginBottom: spacing.xl }]}>

@@ -20,7 +20,8 @@ import {
   Screen,
   useDialog,
 } from '../src/ui';
-import { colors, radius, rtlRow, spacing } from '../src/theme';
+import { lightColors, radius, rtlRow, spacing } from '../src/theme';
+import { useTheme } from '../src/context/ThemeContext';
 import { errorText } from '../src/lib/authErrors';
 
 const ICONS = [
@@ -36,6 +37,7 @@ const COLORS = [
 ];
 
 export default function Categories() {
+  const { colors } = useTheme();
   const router = useRouter();
   const { confirm } = useDialog();
   const { householdId, bumpVersion } = useHousehold();
@@ -192,6 +194,7 @@ function CategoryEditor({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { colors } = useTheme();
   const [name, setName] = useState('');
   const [icon, setIcon] = useState(ICONS[0]);
   const [color, setColor] = useState(COLORS[0]);

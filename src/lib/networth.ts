@@ -130,6 +130,16 @@ export async function listAccountValues(householdId: string): Promise<AccountVal
   ) as unknown as AccountValue[];
 }
 
+export async function getLatestPriceFetchTime(): Promise<string | null> {
+  const { data } = await supabase
+    .from('security_prices')
+    .select('fetched_at')
+    .order('fetched_at', { ascending: false })
+    .limit(1)
+    .single();
+  return data?.fetched_at ?? null;
+}
+
 export interface NetWorthTrendPoint {
   date: string;
   total_agorot: number;
@@ -375,12 +385,22 @@ export function stalenessLabel(capturedAt: string | null): string {
   if (!capturedAt) return 'לא עודכן מעולם';
   const then = new Date(capturedAt).getTime();
   if (!Number.isFinite(then)) return 'לא עודכן מעולם';
-  const days = Math.floor((Date.now() - then) / 86400000);
+  
+  // חישוב ימים קלנדריים ולא תקופות של 24 שעות
+  const nowObj = new Date();
+  nowObj.setHours(0, 0, 0, 0);
+  const thenObj = new Date(then);
+  thenObj.setHours(0, 0, 0, 0);
+  const days = Math.round((nowObj.getTime() - thenObj.getTime()) / 86400000);
+
   if (days <= 0) return 'עודכן היום';
   if (days === 1) return 'עודכן אתמול';
+  if (days === 2) return 'עודכן לפני יומיים';
   if (days < 30) return `עודכן לפני ${days} ימים`;
   const months = Math.floor(days / 30);
-  return months === 1 ? 'עודכן לפני חודש' : `עודכן לפני ${months} חודשים`;
+  if (months === 1) return 'עודכן לפני חודש';
+  if (months === 2) return 'עודכן לפני חודשיים';
+  return `עודכן לפני ${months} חודשים`;
 }
 
 /** האם היתרה ישנה מספיק כדי להזהיר. */
@@ -388,7 +408,14 @@ export function isStale(capturedAt: string | null, days = 30): boolean {
   if (!capturedAt) return true;
   const then = new Date(capturedAt).getTime();
   if (!Number.isFinite(then)) return true;
-  return Date.now() - then > days * 86400000;
+  
+  const nowObj = new Date();
+  nowObj.setHours(0, 0, 0, 0);
+  const thenObj = new Date(then);
+  thenObj.setHours(0, 0, 0, 0);
+  const diffDays = Math.round((nowObj.getTime() - thenObj.getTime()) / 86400000);
+  
+  return diffDays >= days;
 }
 
 export const ACCOUNT_KIND_LABEL: Record<AccountKind, string> = {

@@ -2,6 +2,7 @@
 import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useTheme } from '../src/context/ThemeContext';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { goBack } from '../src/lib/nav';
@@ -42,7 +43,7 @@ import {
   PageHeader,
   useDialog,
 } from '../src/ui';
-import { colors, font, layout, radius, rtlRow, rtlText, spacing } from '../src/theme';
+import { font, layout, radius, rtlRow, rtlText, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
 
 /** סוגי הקבצים שאפשר להעלות. ב-web צריך גם סיומות, כי דפדפנים לא תמיד
@@ -95,6 +96,7 @@ function busiestMonth(dates: string[]): { month: string; inMonth: number; months
 
 
 export default function Import() {
+  const { colors } = useTheme();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
@@ -581,13 +583,13 @@ export default function Import() {
 
             {result.notes.map((note, i) => (
               <InlineMessage key={note} tone="info" style={{ marginBottom: spacing.sm }}>
-                <Text testID={`hb-import-note-${i}`}>{note}</Text>
+                <Text style={{ color: colors.text }} testID={`hb-import-note-${i}`}>{note}</Text>
               </InlineMessage>
             ))}
 
             {duplicateCount > 0 ? (
               <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
-                <Text testID="hb-import-duplicates">
+                <Text style={{ color: colors.text }} testID="hb-import-duplicates">
                   {duplicateCount === 1
                     ? `תנועה אחת מתוך ${rows.length} כבר קיימת אצלך בתאריך ובסכום האלה, ולכן אינה מסומנת לייבוא.`
                     : `${duplicateCount} מתוך ${rows.length} התנועות כבר קיימות אצלך בתאריך ובסכום האלה, ולכן אינן מסומנות לייבוא.`}
@@ -597,7 +599,7 @@ export default function Import() {
 
             {refundCount > 0 ? (
               <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
-                <Text testID="hb-import-refunds">
+                <Text style={{ color: colors.text }} testID="hb-import-refunds">
                   {refundCount === 1
                     ? 'שורת זיכוי אחת (החזר) אינה הוצאה ולכן לא ניתן לייבא אותה.'
                     : `${refundCount} שורות זיכוי (החזר) אינן הוצאה ולכן לא ניתן לייבא אותן.`}
@@ -607,7 +609,7 @@ export default function Import() {
 
             {recurringCount > 0 ? (
               <InlineMessage tone="info" style={{ marginBottom: spacing.sm }}>
-                <Text testID="hb-import-recurring-summary">
+                <Text style={{ color: colors.text }} testID="hb-import-recurring-summary">
                   {`${recurringCount === 1 ? 'שורה אחת דומה' : `${recurringCount} שורות דומות`} להוצאה קבועה שכבר רשומה אצלך באותו חודש, והן מסומנות «אולי הוצאה קבועה». הן נשארות מסומנות לייבוא — עברו עליהן והסירו סימון מכל שורה שכבר נרשמה. שימו לב: זו בדיקה חלקית, ושורה בלי סימון כזה עדיין עשויה להיות כפולה.`}
                 </Text>
               </InlineMessage>
@@ -758,10 +760,11 @@ export default function Import() {
 
 // ── שורת סיכום בכרטיס העליון ────────────────────────────────────────────────
 function SummaryLine({ label, value, testID }: { label: string; value: string; testID?: string }) {
+  const { colors } = useTheme();
   return (
     <View style={{ ...rtlRow, justifyContent: 'space-between', gap: spacing.sm, paddingVertical: 2 }}>
       <Muted>{label}</Muted>
-      <Text testID={testID} style={[font.body, rtlText, { fontWeight: '700' }]}>
+      <Text testID={testID} style={[font.body, rtlText, { fontWeight: '700', color: colors.text }]}>
         {value}
       </Text>
     </View>
@@ -795,6 +798,7 @@ function ImportRowItem({
   onPickCategory: () => void;
   onPickAssignment: () => void;
 }) {
+  const { colors } = useTheme();
   // ההסבר בעברית למה השורה לא מסומנת מראש — אחרת המשתמש רק רואה תיבה ריקה
   const reasons: string[] = [];
   if (row.duplicate) reasons.push('כבר קיימת אצלך תנועה זהה בתאריך ובסכום האלה');
@@ -982,6 +986,7 @@ function CategoryPicker({
   onClose: () => void;
   onSelect: (categoryId: string | null) => void;
 }) {
+  const { colors } = useTheme();
   // הבורר מציג רק קטגוריות מהכיוון של השורה — אין טעם להציע קטגוריית הכנסה
   // לשורת חובה, ו-`matchCategory` ממילא לא היה מאמץ אותה.
   const options = row ? categories.filter((c) => c.kind === row.kind) : [];
@@ -1080,6 +1085,7 @@ function AssignmentPicker({
   onClose: () => void;
   onSelect: (assignedTo: string | null) => void;
 }) {
+  const { colors } = useTheme();
   return (
     <Modal visible={row !== null} transparent animationType="fade" onRequestClose={onClose}>
       <Pressable

@@ -1,7 +1,8 @@
+import { useTheme } from '../context/ThemeContext';
 import React from 'react';
 import { Pressable, Text, View, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, rtlRow, spacing } from '../theme';
+import { radius, rtlRow, spacing } from '../theme';
 
 /**
  * בורר השיוך המשותף למסך הייבוא ולמסך עריכת התנועה.
@@ -20,6 +21,7 @@ export type AssignableMember = {
 };
 
 export function memberLabel(member: AssignableMember, meId: string | undefined): string {
+  const { colors } = useTheme();
   const name = member.profiles?.full_name ?? member.profiles?.email ?? 'בן בית';
   return member.user_id === meId ? `${name} (אני)` : name;
 }
@@ -59,6 +61,7 @@ export function AssignChip({
   onPress: () => void;
   testID: string;
 }) {
+  const { colors } = useTheme();
   return (
     <Pressable
       accessibilityRole="radio"

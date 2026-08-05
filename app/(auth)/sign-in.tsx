@@ -1,13 +1,15 @@
+import { useTheme } from '../../src/context/ThemeContext';
 import React, { useState } from 'react';
 import { KeyboardAvoidingView, Platform, View } from 'react-native';
 import { Link } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../src/context/AuthContext';
 import { Body, Button, Card, Field, H1, InlineMessage, Muted, Screen, TextLink } from '../../src/ui';
-import { colors, rtlRow, spacing } from '../../src/theme';
+import { rtlRow, spacing } from '../../src/theme';
 import { errorText } from '../../src/lib/authErrors';
 
 export default function SignIn() {
+  const { colors } = useTheme();
   const { signInWithEmail, signInWithGoogle, resetPassword } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

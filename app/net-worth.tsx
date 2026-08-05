@@ -70,6 +70,7 @@ export default function NetWorth() {
   const [tracked, setTracked] = useState<nw.TrackedAccount[]>([]);
   const [txns, setTxns] = useState<nw.TrackedTransaction[]>([]);
   const [trackingSchemaOk, setTrackingSchemaOk] = useState(true);
+  const [latestFetchTime, setLatestFetchTime] = useState<string | null>(null);
 
   const { data: trendData, loading: trendLoading, reload: reloadTrend } = useNetWorthTrend();
 
@@ -94,6 +95,7 @@ export default function NetWorth() {
         return;
       }
       setRows(await nw.listAccountValues(householdId));
+      setLatestFetchTime(await nw.getLatestPriceFetchTime());
       // ⚠️ ה-view נוסף במיגרציה 0011, בעוד `hasNetWorthSchema` בודקת את 0010.
       //    כשרק 0010 רצה — מציגים את הסכום בלי הגרף במקום לשבור את המסך.
       try {
@@ -137,8 +139,15 @@ export default function NetWorth() {
       if (!r.captured_at) return acc;
       return acc === null || r.captured_at < acc ? r.captured_at : acc;
     }, null);
-    return { total, unpriced, fromReport, oldest };
-  }, [rows]);
+    let newest = rows.reduce<string | null>((acc, r) => {
+      if (!r.captured_at) return acc;
+      return acc === null || r.captured_at > acc ? r.captured_at : acc;
+    }, null);
+    if (latestFetchTime && (!newest || latestFetchTime > newest)) {
+      newest = latestFetchTime;
+    }
+    return { total, unpriced, fromReport, oldest, newest };
+  }, [rows, latestFetchTime]);
 
   /**
    * 🎯 החלטה 18: היתרה **נצברת** מהעוגן במקום להיות צילום שתקוע.
@@ -274,8 +283,8 @@ export default function NetWorth() {
         ) : null}
 
         <View style={{ ...rtlRow, gap: spacing.sm, flexWrap: 'wrap', marginTop: spacing.sm }}>
-          <Badge icon="time-outline" color={nw.isStale(totals.oldest) ? colors.warning : colors.textMuted}>
-            {rows.length === 0 ? 'אין חשבונות' : nw.stalenessLabel(totals.oldest)}
+          <Badge icon="time-outline" color={nw.isStale(totals.newest) ? colors.warning : colors.textMuted}>
+            {rows.length === 0 ? 'אין חשבונות' : nw.stalenessLabel(totals.newest)}
           </Badge>
           {totals.fromReport > 0 ? (
             <Badge icon="document-text-outline" color={colors.textMuted}>

@@ -1,3 +1,4 @@
+import { useTheme } from '../src/context/ThemeContext';
 import React, { useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -19,10 +20,11 @@ import {
   Screen,
   SectionTitle,
 } from '../src/ui';
-import { colors, rtlRow, spacing } from '../src/theme';
+import { rtlRow, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
 
 export default function Budgets() {
+  const { colors } = useTheme();
   const month = monthStart();
   const router = useRouter();
   const { householdId, bumpVersion } = useHousehold();

@@ -1,3 +1,4 @@
+import { useTheme } from '../../src/context/ThemeContext';
 /**
  * פירוט חשבון — יתרה, אחזקות, והוספת נייר ערך.
  *
@@ -31,7 +32,7 @@ import {
   SectionTitle,
   useDialog,
 } from '../../src/ui';
-import { colors, rtlRow, spacing } from '../../src/theme';
+import { rtlRow, spacing } from '../../src/theme';
 import { errorText } from '../../src/lib/authErrors';
 
 const WEB_ACCEPT =
@@ -43,6 +44,7 @@ const NATIVE_TYPES = [
 ];
 
 export default function AccountDetail() {
+  const { colors } = useTheme();
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { confirm } = useDialog();

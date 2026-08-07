@@ -3,6 +3,7 @@ import { parseBank } from './bank';
 import { parseCal } from './cal';
 import { parsePoalim } from './poalim';
 import { parseGeneric } from './generic';
+import { parsePDFWithGemini } from './pdf';
 
 /**
  * SheetJS נטען דינמית כדי שלא ייכנס ל-bundle הראשי — הוא נדרש רק במסך הייבוא.
@@ -53,8 +54,13 @@ export type ImportFile = {
 
 export async function parseFile(file: ImportFile): Promise<ParseResult> {
   const ext = (file.name.split('.').pop() ?? '').toLowerCase();
+  
+  if (ext === 'pdf') {
+    return parsePDFWithGemini(file.data, file.name);
+  }
+
   if (!['xls', 'xlsx', 'csv'].includes(ext)) {
-    throw new ImportError('פורמט לא נתמך. אפשר להעלות קבצי Excel‏ (xlsx / xls) או CSV.');
+    throw new ImportError('פורמט לא נתמך. אפשר להעלות קבצי Excel‏ (xlsx / xls), CSV, או PDF.');
   }
   if (!file.data.byteLength) throw new ImportError('הקובץ ריק');
 

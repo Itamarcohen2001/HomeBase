@@ -53,9 +53,11 @@ const WEB_ACCEPT = [
   '.xls',
   '.xlsx',
   '.csv',
+  '.pdf',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
+  'application/pdf',
 ].join(',');
 
 const NATIVE_TYPES = [
@@ -63,6 +65,7 @@ const NATIVE_TYPES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   'text/csv',
   'text/comma-separated-values',
+  'application/pdf',
 ];
 
 type Message = { tone: 'error' | 'success' | 'info'; text: string } | null;

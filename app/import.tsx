@@ -508,8 +508,8 @@ export default function Import() {
               <View style={{ ...rtlRow, gap: spacing.md, marginBottom: spacing.md }}>
                 <IconBubble icon="cloud-upload" color={colors.primary} size={46} />
                 <View style={{ flexShrink: 1, minWidth: 0 }}>
-                  <Body style={{ fontWeight: '700' }}>העלאת דוח מחברת האשראי</Body>
-                  <Muted style={{ fontSize: 12 }}>קבצי Excel‏ (xlsx / xls) או CSV</Muted>
+                  <Body style={{ fontWeight: '700' }}>העלאת דוח</Body>
+                  <Muted style={{ fontSize: 12 }}>קבצי PDF, Excel או CSV</Muted>
                 </View>
               </View>
               <Muted style={{ marginBottom: spacing.lg }}>
@@ -528,8 +528,7 @@ export default function Import() {
             <Card>
               <H3 style={{ marginBottom: spacing.sm }}>איך מורידים את הדוח</H3>
               <Muted>
-                בכ.א.ל / אוצר החייל: פירוט עסקאות ← ייצוא לאקסל. בבנק הפועלים: מסטרקארד דירקט ← פירוט
-                חיובים ← ייצוא. אפשר להעלות גם קובץ CSV של כל חברת אשראי אחרת.
+                ברוב הבנקים וחברות האשראי אפשר פשוט להוריד קובץ PDF של הדוח החודשי. בנוסף, אפשר לייצא לאקסל (בכ.א.ל: פירוט עסקאות ← ייצוא לאקסל, בפועלים: מסטרקארד דירקט ← ייצוא) או להעלות קובץ CSV.
               </Muted>
             </Card>
           </>

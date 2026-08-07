@@ -16,7 +16,7 @@ export async function parsePDFWithGemini(data: ArrayBuffer | Uint8Array, fileNam
   base64String = btoa(base64String);
 
   // Note: We use the REST API directly to avoid dealing with specific fetch/Node polyfills in the SDK across React Native and Web.
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   const prompt = `
   You are an expert financial data extractor. I am providing you with a PDF of a credit card or bank statement from Israel.

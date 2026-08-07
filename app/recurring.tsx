@@ -8,6 +8,7 @@ import { useHousehold } from '../src/context/HouseholdContext';
 import * as db from '../src/lib/db';
 import { formatMoney, shekelsToAgorot } from '../src/lib/format';
 import type { Category, Kind, RecurringRule } from '../src/lib/types';
+import * as nw from '../src/lib/networth';
 import {
   Badge,
   Body,
@@ -35,6 +36,7 @@ export default function Recurring() {
   const { householdId, bumpVersion } = useHousehold();
   const [rules, setRules] = useState<RecurringRule[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [accounts, setAccounts] = useState<nw.TrackedAccount[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ tone: 'error' | 'success'; text: string } | null>(null);
   const [editor, setEditor] = useState<{ open: boolean; rule: RecurringRule | null }>({ open: false, rule: null });
@@ -54,9 +56,14 @@ export default function Recurring() {
     if (!householdId) return;
     setLoading(true);
     try {
-      const [r, c] = await Promise.all([db.listRecurring(householdId), db.listCategories(householdId)]);
+      const [r, c, a] = await Promise.all([
+        db.listRecurring(householdId), 
+        db.listCategories(householdId),
+        nw.listTrackedAccounts(householdId)
+      ]);
       setRules(r);
       setCategories(c);
+      setAccounts(a);
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון') });
     } finally {
@@ -205,6 +212,7 @@ export default function Recurring() {
         visible={editor.open}
         rule={editor.rule}
         categories={categories}
+        accounts={accounts}
         sharedAvailable={sharedAvailable}
         onClose={() => setEditor({ open: false, rule: null })}
         onSaved={async () => {
@@ -221,6 +229,7 @@ function RuleEditor({
   visible,
   rule,
   categories,
+  accounts,
   sharedAvailable,
   onClose,
   onSaved,
@@ -228,6 +237,7 @@ function RuleEditor({
   visible: boolean;
   rule: RecurringRule | null;
   categories: Category[];
+  accounts: nw.TrackedAccount[];
   sharedAvailable: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -240,6 +250,7 @@ function RuleEditor({
   const [day, setDay] = useState('1');
   const [kind, setKind] = useState<Kind>('expense');
   const [categoryId, setCategoryId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [isShared, setIsShared] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -251,6 +262,7 @@ function RuleEditor({
     setDay(String(rule?.day_of_month ?? 1));
     setKind(rule?.kind ?? 'expense');
     setCategoryId(rule?.category_id ?? null);
+    setAccountId(rule?.account_id ?? (accounts.length > 0 ? accounts[0].id : null));
     setIsShared(Boolean(rule?.is_shared));
     setError(null);
   }, [visible, rule]);
@@ -275,6 +287,7 @@ function RuleEditor({
         dayOfMonth: dayNum,
         isActive: rule?.is_active ?? true,
         createdBy: user.id,
+        accountId: accountId,
         isShared: kind === 'expense' && isShared,
       });
       onSaved();
@@ -344,6 +357,37 @@ function RuleEditor({
               placeholder="1"
               hint="אם החודש קצר יותר, התנועה תירשם ביום האחרון של החודש"
             />
+
+            {accounts.length > 0 && (
+              <View style={{ marginBottom: spacing.lg }}>
+                <Muted style={{ marginBottom: spacing.sm }}>חשבון משויך</Muted>
+                <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
+                  {accounts.map((a) => {
+                    const active = accountId === a.id;
+                    return (
+                      <Pressable
+                        key={a.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setAccountId(active ? null : a.id)}
+                        style={{
+                          paddingVertical: spacing.sm,
+                          paddingHorizontal: spacing.md,
+                          backgroundColor: active ? `${colors.primary}22` : colors.surface,
+                          borderWidth: 1.5,
+                          borderColor: active ? colors.primary : colors.border,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Body style={{ color: active ? colors.primaryDark : colors.text, fontWeight: active ? '700' : '400' }}>
+                          {a.name}
+                        </Body>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
 
             {/* הוצאה משותפת — מעל רשת הקטגוריות, לא כאלמנט האחרון בגלילה, כדי
                 שלא ייפול מתחת לקו הקיפול (באג 1 מסבב 2). כל תנועה שתיווצר

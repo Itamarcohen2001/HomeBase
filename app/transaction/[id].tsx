@@ -9,6 +9,7 @@ import { useAuth } from '../../src/context/AuthContext';
 import { useHousehold } from '../../src/context/HouseholdContext';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import * as db from '../../src/lib/db';
+import * as nw from '../../src/lib/networth';
 import { formatDate, shekelsToAgorot, toDateString } from '../../src/lib/format';
 import type { HouseholdMember, Transaction } from '../../src/lib/types';
 import {
@@ -47,6 +48,8 @@ export default function EditTransaction() {
   /** `null` = משותף, אחרת ה-`user_id` שההוצאה נזקפת לו */
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
   const [members, setMembers] = useState<HouseholdMember[]>([]);
+  const [accounts, setAccounts] = useState<nw.TrackedAccount[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [sharedAvailable, setSharedAvailable] = useState(false);
   const [date, setDate] = useState(new Date());
   const [showPicker, setShowPicker] = useState(false);
@@ -61,10 +64,15 @@ export default function EditTransaction() {
     db.hasSharedColumn().then((ok) => {
       if (alive) setSharedAvailable(ok);
     });
+    if (householdId) {
+      nw.listTrackedAccounts(householdId).then((accts) => {
+        if (alive) setAccounts(accts);
+      });
+    }
     return () => {
       alive = false;
     };
-  }, []);
+  }, [householdId]);
 
   useEffect(() => {
     let alive = true;
@@ -87,6 +95,7 @@ export default function EditTransaction() {
       setCategoryId(found.category_id);
       setNote(found.note ?? '');
       setAssignedTo(found.is_shared === true ? null : found.user_id);
+      setAccountId(found.account_id ?? null);
       setDate(new Date(`${found.occurred_on}T00:00:00`));
     };
 
@@ -170,6 +179,7 @@ export default function EditTransaction() {
         amount_agorot: amountAgorot,
         category_id: categoryId,
         note: note.trim() || null,
+        account_id: accountId,
         occurred_on: toDateString(date),
         // כשההוצאה משותפת ה-user_id נשאר כפי שהוא — הוא עדיין מציין מי רשם
         // אותה, פשוט לא נזקף לו בפיצול (types.ts:57).
@@ -241,6 +251,37 @@ export default function EditTransaction() {
         <Muted style={{ marginBottom: spacing.xs }}>סכום</Muted>
         <AmountInput value={amount} onChangeText={setAmount} size="lg" accessibilityLabel="סכום" />
       </Card>
+
+      {accounts.length > 0 && (
+        <Card style={{ marginBottom: spacing.md }}>
+          <Muted style={{ marginBottom: spacing.sm }}>חשבון משויך</Muted>
+          <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
+            {accounts.map((a) => {
+              const active = accountId === a.id;
+              return (
+                <Pressable
+                  key={a.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setAccountId(active ? null : a.id)}
+                  style={{
+                    paddingVertical: spacing.sm,
+                    paddingHorizontal: spacing.md,
+                    backgroundColor: active ? `${colors.primary}22` : colors.surface,
+                    borderWidth: 1.5,
+                    borderColor: active ? colors.primary : colors.border,
+                    borderRadius: radius.md,
+                  }}
+                >
+                  <Body style={{ color: active ? colors.primaryDark : colors.text, fontWeight: active ? '700' : '400' }}>
+                    {a.name}
+                  </Body>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Card>
+      )}
 
       {/* בורר השיוך יושב כאן, מעל הקטגוריות וההערה — לא כאלמנט האחרון בגלילה */}
       {assignmentVisible ? (

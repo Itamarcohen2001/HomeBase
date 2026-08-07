@@ -738,6 +738,7 @@ export interface TrackedTransaction {
    *    השורות המפורטות.
    */
   supersededByBatchId?: string | null;
+  account_id?: string | null;
 }
 
 export type TrackingGap = 'no_schema' | 'no_transaction_account' | 'no_anchor_date';
@@ -843,111 +844,67 @@ export function pickTransactionAccount<T extends { is_transaction_account?: bool
  */
 export function buildBalanceTracking(
   accounts: TrackedAccount[],
-  transactions: TrackedTransaction[],
-  opts?: { hasSchema?: boolean },
+  transactions: TrackedTransaction[]
 ): BalanceTracking {
-  const empty = {
+  let totalDelta = 0;
+  let totalExpense = 0;
+  let totalIncome = 0;
+  let totalCounted = 0;
+
+  for (const account of accounts) {
+    const liveBalance = Number(account.balance_agorot ?? 0) || 0;
+    const from = anchorDate(account.captured_at);
+    
+    let expense = 0;
+    let income = 0;
+    
+    if (from) {
+      for (const t of transactions) {
+        if (t.account_id !== account.id) continue;
+        if (!t.occurred_on || t.occurred_on <= from) continue;
+        if (t.supersededByBatchId) continue;
+        
+        const amount = Math.abs(Number(t.amount_agorot ?? 0)) || 0;
+        if (!amount) continue;
+        if (t.kind === 'income') income += amount;
+        else if (t.kind === 'expense') expense += amount;
+        totalCounted += 1;
+      }
+    }
+    
+    totalExpense += expense;
+    totalIncome += income;
+    totalDelta += (income - expense);
+  }
+
+  return { 
+    available: true, 
+    expense: totalExpense, 
+    income: totalIncome, 
+    delta: totalDelta,
+    current: 0, // not used directly when multi-account
+    counted: totalCounted,
+    gap: undefined,
     accountId: null,
     accountName: '',
     anchor: 0,
     anchorDate: null,
-    expense: 0,
-    income: 0,
-    delta: 0,
-    current: 0,
-    counted: 0,
   };
-
-  // 🔴 **בלי 0013 העמודה אינה קיימת, ה-select נכשל, ו-`listTrackedAccounts`
-  //    מחזיר `[]`** — שזה בדיוק מה שמתקבל גם כשהסכימה קיימת ואין סימון.
-  //    מדדתי ששני המצבים היו **בלתי נבדלים**, ולכן המסך היה שולח את
-  //    המשתמש לסמן חשבון — פעולה שנכשלת, כי גם ה-RPC אינו קיים. פער
-  //    מוצהר חייב להצהיר על **הסיבה הנכונה**.
-  if (opts?.hasSchema === false) return { available: false, gap: 'no_schema', ...empty };
-
-  const account = pickTransactionAccount(accounts);
-  // 🔴 אין חשבון מסומן ⇒ מצהירים. המסך יציג «לא נבחר חשבון לתנועות».
-  if (!account) return { available: false, gap: 'no_transaction_account', ...empty };
-
-  const anchor = Number(account.balance_agorot ?? 0) || 0;
-  const from = anchorDate(account.captured_at);
-  const base = {
-    ...empty,
-    accountId: account.id,
-    accountName: account.name ?? '',
-    anchor,
-    anchorDate: from,
-    current: anchor,
-  };
-
-  // אין תאריך עוגן ⇒ אין ממה לצבור. מציגים את היתרה כמות שהיא ומצהירים.
-  if (!from) return { available: false, gap: 'no_anchor_date', ...base };
-
-  let expense = 0;
-  let income = 0;
-  let counted = 0;
-  for (const t of transactions) {
-    // 🔴 `>` ולא `>=` — ראו ANCHOR_BOUNDARY
-    if (!t.occurred_on || t.occurred_on <= from) continue;
-    // 🔴 החלטה 20: שורה שדוח האשראי כבר פירט אותה אינה הוצאה נוספת.
-    //    ⚠️ הסינון כאן, ולא רק ב-`.is(...)` בשרת, כדי שהכלל יהיה **טהור
-    //    וניתן למדידה** בלי DB — וכדי שסכימה ישנה לא תשתיק אותו בשקט.
-    if (t.supersededByBatchId) continue;
-    const amount = Math.abs(Number(t.amount_agorot ?? 0)) || 0;
-    if (!amount) continue;
-    if (t.kind === 'income') income += amount;
-    else if (t.kind === 'expense') expense += amount;
-    else continue;
-    counted += 1;
-  }
-
-  const delta = income - expense;
-  return { ...base, available: true, expense, income, delta, current: anchor + delta, counted };
 }
 
-/**
- * האם מיגרציה 0013 רצה.
- *
- * 🔴 נפרד מ-`hasNetWorthSchema`: 0010 יכולה לרוץ בלי 0013, וזה בדיוק המצב
- *    בפרודקשן עד שהמיגרציה נמסרת. בלי ההבחנה הזו «אין חשבון מסומן»
- *    ו«העמודה לא קיימת» נראים זהים, והמשתמש נשלח לפעולה שתיכשל.
- */
-let trackingState: 'unknown' | 'present' | 'missing' = 'unknown';
-let trackingProbe: Promise<boolean> | null = null;
 
-function isMissingColumn(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  // ‏42703 = undefined_column · PGRST204 = לא נמצא ב-schema cache
-  if (error.code === '42703' || error.code === 'PGRST204') return true;
-  return /is_transaction_account/i.test(error.message ?? '');
-}
 
-export function hasTransactionAccountColumn(): Promise<boolean> {
-  if (trackingState !== 'unknown') return Promise.resolve(trackingState === 'present');
-  if (!trackingProbe) {
-    trackingProbe = (async () => {
-      const { error } = await supabase.from('accounts').select('is_transaction_account').limit(1);
-      trackingState = error && (isMissingColumn(error) || isMissingSchema(error)) ? 'missing' : 'present';
-      return trackingState === 'present';
-    })();
-  }
-  return trackingProbe;
-}
-
-/** חשבונות הבנק, עם הסימון של חשבון התנועות. */
 export async function listTrackedAccounts(householdId: string): Promise<TrackedAccount[]> {
-  if (!(await hasTransactionAccountColumn())) return [];
   try {
     return unwrap(
       await supabase
         .from('accounts')
-        .select('id, name, balance_agorot, captured_at, is_transaction_account')
+        .select('id, name, balance_agorot, captured_at')
         .eq('household_id', householdId)
         .eq('is_archived', false)
         .eq('kind', 'bank'),
     ) as unknown as TrackedAccount[];
   } catch {
-    // סכימה בלי 0013 ⇒ אין מעקב, ולא קריסה
     return [];
   }
 }
@@ -975,22 +932,24 @@ export async function listTransactionsAfter(
       .eq('household_id', householdId)
       .gt('occurred_on', from);
   try {
-    const withCol = await base('kind, amount_agorot, occurred_on, superseded_by_batch_id');
+    const withCol = await base('kind, amount_agorot, occurred_on, superseded_by_batch_id, account_id');
     if (!withCol.error) {
       return ((withCol.data ?? []) as unknown as {
         kind: 'expense' | 'income';
         amount_agorot: number;
         occurred_on: string;
         superseded_by_batch_id: string | null;
+        account_id: string | null;
       }[]).map((t) => ({
         kind: t.kind,
         amount_agorot: t.amount_agorot,
         occurred_on: t.occurred_on,
         supersededByBatchId: t.superseded_by_batch_id,
+        account_id: t.account_id,
       }));
     }
-    return unwrap(await base('kind, amount_agorot, occurred_on')) as unknown as TrackedTransaction[];
-  } catch {
+    return unwrap(await base('kind, amount_agorot, occurred_on, account_id')) as unknown as TrackedTransaction[];
+  } catch (e) {
     return [];
   }
 }

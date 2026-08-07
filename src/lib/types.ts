@@ -59,6 +59,7 @@ export type Transaction = {
   occurred_on: string;
   note: string | null;
   recurring_rule_id: string | null;
+  account_id?: string | null;
   created_at: string;
   /**
    * הוצאה של כל משק הבית. בגרף הפיצול בין בני הבית היא מקבלת פרוסה נפרדת
@@ -80,6 +81,7 @@ export type RecurringRule = {
   day_of_month: number;
   is_active: boolean;
   last_run_month: string | null;
+  account_id?: string | null;
   /** קיים רק אחרי מיגרציה 0007 — כל תנועה שתיווצר מהכלל תסומן כמשותפת */
   is_shared?: boolean | null;
   categories?: Pick<Category, 'id' | 'name' | 'icon' | 'color'> | null;

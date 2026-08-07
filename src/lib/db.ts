@@ -201,6 +201,7 @@ export async function addTransaction(input: {
   amountAgorot: number;
   occurredOn: string;
   note?: string | null;
+  accountId?: string | null;
   isShared?: boolean;
 }): Promise<Transaction> {
   const payload: Record<string, unknown> = {
@@ -211,6 +212,7 @@ export async function addTransaction(input: {
     amount_agorot: input.amountAgorot,
     occurred_on: input.occurredOn,
     note: input.note ?? null,
+    account_id: input.accountId ?? null,
   };
   if (await hasSharedColumn()) payload.is_shared = Boolean(input.isShared);
 
@@ -290,6 +292,7 @@ export async function updateTransaction(
     /** שיוך התנועה לבן משק בית. RLS מתיר זאת — הפוליסי בודק household_id בלבד
      *  (0002_rls.sql:171), ואומת מול הפרודקשן. */
     user_id: string | null;
+    account_id: string | null;
   }>,
 ): Promise<void> {
   const payload = { ...patch };
@@ -447,6 +450,7 @@ export async function addTransactionsBulk(
     amountAgorot: number;
     occurredOn: string;
     note: string | null;
+    accountId?: string | null;
     isShared?: boolean;
   }[],
   /**
@@ -469,6 +473,7 @@ export async function addTransactionsBulk(
       amount_agorot: r.amountAgorot,
       occurred_on: r.occurredOn,
       note: r.note,
+      account_id: r.accountId ?? null,
     };
     if (withShared) row.is_shared = Boolean(r.isShared);
     if (batchId) row.import_batch_id = batchId;
@@ -871,6 +876,7 @@ export async function upsertRecurring(input: {
   dayOfMonth: number;
   isActive: boolean;
   createdBy: string;
+  accountId?: string | null;
   isShared?: boolean;
 }): Promise<void> {
   const payload: Record<string, unknown> = {
@@ -882,6 +888,7 @@ export async function upsertRecurring(input: {
     day_of_month: input.dayOfMonth,
     is_active: input.isActive,
     created_by: input.createdBy,
+    account_id: input.accountId ?? null,
   };
   if (await hasRecurringSharedColumn()) payload.is_shared = Boolean(input.isShared);
   if (input.id) {

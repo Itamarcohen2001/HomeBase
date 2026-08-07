@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -12,6 +12,7 @@ import * as db from '../src/lib/db';
 import { formatDate, formatILS, monthEnd, monthLabel, monthStart } from '../src/lib/format';
 import { parseFile } from '../src/lib/import/parse';
 import { cardRefFromCharge, rowKind, type ParseResult } from '../src/lib/import/shared';
+import * as nw from '../src/lib/networth';
 import {
   buildDraft,
   noteFor,
@@ -115,6 +116,8 @@ export default function Import() {
    */
   const [batchLinkage, setBatchLinkage] = useState(true);
   const [sharedAvailable, setSharedAvailable] = useState(false);
+  const [accounts, setAccounts] = useState<nw.TrackedAccount[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
   const [pickerRowId, setPickerRowId] = useState<string | null>(null);
   const [assignRowId, setAssignRowId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -131,10 +134,18 @@ export default function Import() {
     void db.hasSharedColumn().then((ok) => {
       if (alive) setSharedAvailable(ok);
     });
+    if (householdId) {
+      nw.listTrackedAccounts(householdId).then((accts) => {
+        if (alive) {
+          setAccounts(accts);
+          if (accts.length > 0) setAccountId(accts[0].id);
+        }
+      });
+    }
     return () => {
       alive = false;
     };
-  }, []);
+  }, [householdId]);
 
   const categoryById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
 
@@ -394,6 +405,7 @@ export default function Import() {
           // משותף: user_id נשאר של המייבא ו-is_shared מסמן שההוצאה לא נזקפת
           // לאף אחד. שיוך לבן בית: הוא נזקף אליו ולכן אינה משותפת.
           userId: r.assignedTo ?? user.id,
+          accountId: accountId,
           isShared: sharedAvailable && r.assignedTo === null,
         })),
         // 🎯 האצווה נושאת את מה שהקובץ הצהיר: המזהה (חשבון/כרטיס), הסך
@@ -614,6 +626,37 @@ export default function Import() {
                 </Text>
               </InlineMessage>
             ) : null}
+
+            {accounts.length > 0 && (
+              <Card style={{ marginBottom: spacing.md }}>
+                <Muted style={{ marginBottom: spacing.sm }}>חשבון משויך</Muted>
+                <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
+                  {accounts.map((a) => {
+                    const active = accountId === a.id;
+                    return (
+                      <Pressable
+                        key={a.id}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setAccountId(active ? null : a.id)}
+                        style={{
+                          paddingVertical: spacing.sm,
+                          paddingHorizontal: spacing.md,
+                          backgroundColor: active ? `${colors.primary}22` : colors.surface,
+                          borderWidth: 1.5,
+                          borderColor: active ? colors.primary : colors.border,
+                          borderRadius: radius.md,
+                        }}
+                      >
+                        <Body style={{ color: active ? colors.primaryDark : colors.text, fontWeight: active ? '700' : '400' }}>
+                          {a.name}
+                        </Body>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </Card>
+            )}
 
             {/* בורר השיוך הגורף יושב כאן, מעל הרשימה — לא כאלמנט האחרון בגלילה */}
             {sharedAvailable ? (

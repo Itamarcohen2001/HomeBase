@@ -12,6 +12,7 @@ import { useMonthData } from '../src/hooks/useMonthData';
 import * as db from '../src/lib/db';
 import { formatDate, shekelsToAgorot, toDateString } from '../src/lib/format';
 import type { Kind } from '../src/lib/types';
+import * as nw from '../src/lib/networth';
 import { AmountInput, Body, Button, Card, Checkbox, Field, H2, IconBubble, InlineMessage, Muted } from '../src/ui';
 import { layout, radius, rtlRow, spacing } from '../src/theme';
 import { errorText } from '../src/lib/authErrors';
@@ -35,6 +36,8 @@ export default function AddTransaction() {
   const [showPicker, setShowPicker] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<nw.TrackedAccount[]>([]);
+  const [accountId, setAccountId] = useState<string | null>(null);
   // גובה הפוטר הצף נמדד בפועל — כך הריווח התחתון של הגלילה תמיד מדויק,
   // גם כשגובה הכפתור או ה-safe area משתנים.
   const [footerHeight, setFooterHeight] = useState(layout.fabHeight + spacing.lg * 2);
@@ -50,10 +53,18 @@ export default function AddTransaction() {
     db.hasSharedColumn().then((ok) => {
       if (alive) setSharedAvailable(ok);
     });
+    if (householdId) {
+      nw.listTrackedAccounts(householdId).then((accts) => {
+        if (alive) {
+          setAccounts(accts);
+          if (accts.length > 0) setAccountId(accts[0].id);
+        }
+      });
+    }
     return () => {
       alive = false;
     };
-  }, []);
+  }, [householdId]);
 
   async function onSave() {
     if (!householdId || !user || !canSave) return;
@@ -68,6 +79,7 @@ export default function AddTransaction() {
         amountAgorot,
         occurredOn: toDateString(date),
         note: note.trim() || null,
+        accountId: accountId,
         isShared: kind === 'expense' && isShared,
       });
       bumpVersion();
@@ -151,6 +163,37 @@ export default function AddTransaction() {
           <Muted style={{ marginBottom: spacing.xs }}>סכום</Muted>
           <AmountInput value={amount} onChangeText={setAmount} size="xl" autoFocus accessibilityLabel="סכום" />
         </Card>
+
+        {accounts.length > 0 && (
+          <Card style={{ marginTop: spacing.md, marginBottom: spacing.md }}>
+            <Muted style={{ marginBottom: spacing.sm }}>חשבון משויך</Muted>
+            <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
+              {accounts.map((a) => {
+                const active = accountId === a.id;
+                return (
+                  <Pressable
+                    key={a.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setAccountId(active ? null : a.id)}
+                    style={{
+                      paddingVertical: spacing.sm,
+                      paddingHorizontal: spacing.md,
+                      backgroundColor: active ? `${colors.primary}22` : colors.surface,
+                      borderWidth: 1.5,
+                      borderColor: active ? colors.primary : colors.border,
+                      borderRadius: radius.md,
+                    }}
+                  >
+                    <Body style={{ color: active ? colors.primaryDark : colors.text, fontWeight: active ? '700' : '400' }}>
+                      {a.name}
+                    </Body>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Card>
+        )}
 
         {/* פרטים נוספים — מעל רשת הקטגוריות כדי שלא יהיה תלוי בגלילה */}
         <Pressable

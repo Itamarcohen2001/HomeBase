@@ -902,7 +902,7 @@ export async function listTrackedAccounts(householdId: string): Promise<TrackedA
         .select('id, name, balance_agorot, captured_at')
         .eq('household_id', householdId)
         .eq('is_archived', false)
-        .eq('kind', 'bank'),
+        .in('kind', ['bank', 'cash']),
     ) as unknown as TrackedAccount[];
   } catch {
     return [];

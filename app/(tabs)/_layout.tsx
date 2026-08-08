@@ -43,6 +43,13 @@ export default function TabsLayout() {
         }}
       />
       <Tabs.Screen
+        name="net-worth"
+        options={{
+          title: 'שווי נטו',
+          tabBarIcon: ({ color, size }) => <Ionicons name="wallet" size={size} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="analysis"
         options={{
           title: 'ניתוח',

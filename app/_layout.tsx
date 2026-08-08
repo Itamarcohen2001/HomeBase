@@ -75,6 +75,14 @@ function Gate() {
 function MainApp() {
   const { isDark } = useTheme();
   
+  useEffect(() => {
+    // Note: We're dynamically importing this because we don't want any errors 
+    // to block rendering if expo-notifications isn't fully linked
+    import('../src/lib/notifications')
+      .then((m) => m.setupMonthlyReminder())
+      .catch((e) => console.log('Failed to setup notifications', e));
+  }, []);
+
   return (
     <SafeAreaProvider>
       <Head>

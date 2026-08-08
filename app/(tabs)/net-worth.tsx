@@ -10,13 +10,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { RefreshControl, View } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { goBack } from '../src/lib/nav';
-import { useAuth } from '../src/context/AuthContext';
-import { useHousehold } from '../src/context/HouseholdContext';
-import { useTheme } from '../src/context/ThemeContext';
-import * as nw from '../src/lib/networth';
-import { useNetWorthTrend } from '../src/hooks/useNetWorthTrend';
-import { formatMoney, shekelsToAgorot } from '../src/lib/format';
+import { goBack } from '../../src/lib/nav';
+import { useAuth } from '../../src/context/AuthContext';
+import { useHousehold } from '../../src/context/HouseholdContext';
+import { useTheme } from '../../src/context/ThemeContext';
+import * as nw from '../../src/lib/networth';
+import { useNetWorthTrend } from '../../src/hooks/useNetWorthTrend';
+import { formatMoney, shekelsToAgorot } from '../../src/lib/format';
 import {
   Badge,
   Body,
@@ -34,11 +34,11 @@ import {
   PageHeader,
   Screen,
   SectionTitle,
-} from '../src/ui';
-import { rtlRow, spacing } from '../src/theme';
-import { Donut } from '../src/ui/Donut';
-import type { AnalysisSlice } from '../src/lib/types';
-import { errorText } from '../src/lib/authErrors';
+} from '../../src/ui';
+import { rtlRow, spacing } from '../../src/theme';
+import { Donut } from '../../src/ui/Donut';
+import type { AnalysisSlice } from '../../src/lib/types';
+import { errorText } from '../../src/lib/authErrors';
 
 const KIND_ICON: Record<nw.AccountKind, { icon: 'business' | 'trending-up' | 'cash'; color: string }> = {
   bank: { icon: 'business', color: '#4F7FE4' },
@@ -309,7 +309,7 @@ export default function NetWorth() {
       <Card style={{ marginTop: spacing.md }}>
         <H3>מגמת שווי נטו</H3>
         <Muted style={{ marginTop: spacing.xs, marginBottom: spacing.lg }}>התפתחות השווי הכולל לאורך זמן</Muted>
-        
+
         {monthlyTrendData.length === 0 ? (
           <View style={{ alignItems: 'center', padding: spacing.md }}>
             <IconBubble icon="trending-up" size={48} color={colors.textMuted} />
@@ -318,9 +318,9 @@ export default function NetWorth() {
           </View>
         ) : (
           <View style={{ marginTop: spacing.md, marginHorizontal: -spacing.lg, marginBottom: -spacing.md }}>
-            <LineChart 
-              data={monthlyTrendData} 
-              height={220} 
+            <LineChart
+              data={monthlyTrendData}
+              height={220}
             />
           </View>
         )}

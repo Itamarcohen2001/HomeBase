@@ -43,6 +43,29 @@ export async function shareOrCopy(text: string, title?: string): Promise<ShareRe
   }
 }
 
+/**
+ * מעתיק ללוח בלבד — אף פעם לא פותח תפריט שיתוף. ל-shareOrCopy יש עדיפות
+ * ל-navigator.share כשקיים (טוב לקישור הזמנה), אבל לפקודת טרמינל להדביק
+ * זה בדיוק ההפך ממה שרוצים: תמיד להעתיק, לא "לשתף".
+ */
+export async function copyToClipboard(text: string): Promise<boolean> {
+  if (Platform.OS === 'web') {
+    const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+    if (nav?.clipboard?.writeText) {
+      try {
+        await nav.clipboard.writeText(text);
+        return true;
+      } catch {
+        // ממשיכים ל-fallback הישן
+      }
+    }
+    return legacyCopy(text);
+  }
+
+  // אין expo-clipboard בפרויקט (האפליקציה רצה כאן כווב) — אין נתיב מקומי.
+  return false;
+}
+
 /** העתקה בדפדפנים בלי Clipboard API (או בהקשר לא מאובטח) */
 function legacyCopy(text: string): boolean {
   if (typeof document === 'undefined') return false;

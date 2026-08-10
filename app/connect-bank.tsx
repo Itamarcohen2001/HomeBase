@@ -7,7 +7,7 @@ import { useHousehold } from '../src/context/HouseholdContext';
 import { useTheme } from '../src/context/ThemeContext';
 import * as db from '../src/lib/db';
 import * as nw from '../src/lib/networth';
-import { shareOrCopy } from '../src/lib/share';
+import { copyToClipboard } from '../src/lib/share';
 import { formatDate, formatMoney } from '../src/lib/format';
 import { errorText } from '../src/lib/authErrors';
 import { INSTITUTIONS, institutionLabel } from '../src/lib/institutions';
@@ -155,11 +155,11 @@ export default function ConnectBank() {
 
   async function onCopySetupCommand(conn: BankConnection) {
     const cmd = `node setup.js ${conn.id} ${conn.institution}`;
-    const result = await shareOrCopy(cmd, 'פקודת הגדרה');
+    const ok = await copyToClipboard(cmd);
     setMessage(
-      result === 'failed'
-        ? { tone: 'error', text: 'לא הצלחנו להעתיק — אפשר להעתיק ידנית מהכרטיס.' }
-        : { tone: 'success', text: 'הפקודה הועתקה. להריץ אותה בתיקיית bank-sync/ במחשב.' },
+      ok
+        ? { tone: 'success', text: 'הפקודה הועתקה. להריץ אותה בתיקיית bank-sync/ במחשב.' }
+        : { tone: 'error', text: 'לא הצלחנו להעתיק — אפשר להעתיק ידנית מהכרטיס.' },
     );
   }
 

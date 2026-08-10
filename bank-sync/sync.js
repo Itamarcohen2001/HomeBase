@@ -8,6 +8,8 @@ const fs = require('fs');
 const path = require('path');
 const { createScraper } = require('israeli-bank-scrapers');
 const { loadCredentials, listConnectionIds } = require('./lib/crypto');
+const { launchPersistentBrowser } = require('./lib/browser');
+const { startDate } = require('./lib/dates');
 
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const LOG_DIR = path.join(__dirname, 'logs');
@@ -31,17 +33,6 @@ function log(lines) {
   process.stdout.write(stamped);
 }
 
-// 🎯 חלון קבוע ולא "מאז הריצה הקודמת": ריצה שנכשלת (או מחשב כבוי כמה ימים)
-//    לא אמורה ליצור חור בהיסטוריה. חפיפה בין ריצות בטוחה — bank-sync-ingest
-//    מסתמך על (connection_id, external_id) ולא יוצר pending כפול.
-const LOOKBACK_DAYS = 35;
-
-function startDate() {
-  const d = new Date();
-  d.setDate(d.getDate() - LOOKBACK_DAYS);
-  return d;
-}
-
 /** מזהה יציב לתנועה, למניעת דדופ. לא כל המוסדות מספקים identifier. */
 function toExternalId(accountNumber, txn) {
   const acc = accountNumber || 'na';
@@ -54,16 +45,29 @@ function toExternalId(accountNumber, txn) {
 async function scrapeOne(connectionId) {
   const { institution, credentials } = loadCredentials(connectionId);
 
-  const scraper = createScraper({
-    companyId: institution,
-    startDate: startDate(),
-    combineInstallments: false,
-    showBrowser: false,
-  });
+  // 🎯 פרופיל דפדפן קבוע (userDataDir) — לא זריקת דפדפן חדש בכל ריצה.
+  //    ראו lib/browser.js: זה מה שנותן סיכוי שבנק שדרש קוד SMS ב-login.js
+  //    (מכשיר "לא מוכר") יזכור את המכשיר גם כאן, ב-headless.
+  const browser = await launchPersistentBrowser(connectionId, /* headless */ true);
+  let result;
+  try {
+    const scraper = createScraper({
+      companyId: institution,
+      startDate: startDate(),
+      combineInstallments: false,
+      browser,
+      skipCloseBrowser: true,
+    });
+    result = await scraper.scrape(credentials);
+  } finally {
+    await browser.close();
+  }
 
-  const result = await scraper.scrape(credentials);
   if (!result.success) {
-    throw new Error(`${result.errorType || 'UNKNOWN_ERROR'}: ${result.errorMessage || ''}`);
+    const hint = /timeout/i.test(result.errorType || '')
+      ? ' (ייתכן שהבנק מבקש קוד אימות SMS — נסה/י node login.js ' + connectionId + ' עם דפדפן גלוי)'
+      : '';
+    throw new Error(`${result.errorType || 'UNKNOWN_ERROR'}: ${result.errorMessage || ''}${hint}`);
   }
 
   const transactions = [];

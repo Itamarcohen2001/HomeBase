@@ -8,10 +8,12 @@
   },
   "scripts": {
     "setup": "node setup.js",
+    "login": "node login.js",
     "sync": "node sync.js"
   },
   "dependencies": {
     "@primno/dpapi": "^2.0.1",
-    "israeli-bank-scrapers": "^6.9.0"
+    "israeli-bank-scrapers": "^6.9.0",
+    "puppeteer": "^24.43.1"
   }
 }

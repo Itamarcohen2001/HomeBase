@@ -49,3 +49,5 @@ bank-sync/secrets/
 bank-sync/logs/
 bank-sync/config.json
 bank-sync/node_modules/
+# פרופיל דפדפן קבוע לכל חיבור (עוגיות סשן — רגיש כמו secrets/)
+bank-sync/profiles/

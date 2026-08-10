@@ -2,7 +2,6 @@ import React, { useMemo } from 'react';
 import {  RefreshControl, View } from 'react-native';
 import { useMonthData } from '../../src/hooks/useMonthData';
 import { useMonthParam } from '../../src/hooks/useMonthParam';
-import { useNetWorthTrend } from '../../src/hooks/useNetWorthTrend';
 import { formatMoney } from '../../src/lib/format';
 import { splitByCategory, splitByPerson, totalOf } from '../../src/lib/analysis';
 import type { AnalysisSlice } from '../../src/lib/types';
@@ -18,9 +17,11 @@ import {
   Muted,
   Screen,
   GlobalHeaderActions } from '../../src/ui';
-import { colors, rtlRow, spacing } from '../../src/theme';
+import { useTheme } from '../../src/context/ThemeContext';
+import { rtlRow, spacing } from '../../src/theme';
 
 function Legend({ slices }: { slices: AnalysisSlice[] }) {
+  const { colors } = useTheme();
   return (
     <View style={{ marginTop: spacing.lg }}>
       {slices.map((slice, i) => (
@@ -112,6 +113,7 @@ function ChartCard({
 }
 
 export default function Analysis() {
+  const { colors } = useTheme();
   // אותו חודש כמו במסך התנועות: הכתובת גוברת, והחודש המשותף מיישר בין הטאבים
   const [month, setMonth] = useMonthParam();
   const { transactions, summary, loading, reload } = useMonthData(month);

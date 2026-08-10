@@ -20,7 +20,7 @@ import {
   Screen,
   useDialog,
 } from '../src/ui';
-import { lightColors, radius, rtlRow, spacing } from '../src/theme';
+import { radius, rtlRow, spacing } from '../src/theme';
 import { useTheme } from '../src/context/ThemeContext';
 import { errorText } from '../src/lib/authErrors';
 

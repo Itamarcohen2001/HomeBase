@@ -7,7 +7,8 @@ import { useTheme } from '../../src/context/ThemeContext';
  *    שלה מול המשתמש.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, View } from 'react-native';
+import { Platform, Pressable, View } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import * as DocumentPicker from 'expo-document-picker';
 import { goBack } from '../../src/lib/nav';
@@ -126,6 +127,24 @@ export default function AccountDetail() {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לעדכן את היתרה') });
     } finally {
       setSavingBalance(false);
+    }
+  }
+
+  async function onArchive() {
+    if (!account) return;
+    const ok = await confirm({
+      title: 'ארכוב חשבון',
+      message: `להעביר את "${account.name}" לארכיון? הוא ייעלם משווי נטו וממסכי הבחירה, אבל תנועות עבר שלו נשארות. אפשר לשחזר רק דרך Supabase כרגע.`,
+      confirmText: 'ארכוב',
+      cancelText: 'ביטול',
+      destructive: true,
+    });
+    if (!ok) return;
+    try {
+      await nw.archiveAccount(account.id);
+      router.replace('/(tabs)/net-worth' as never);
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לארכב את החשבון') });
     }
   }
 
@@ -446,7 +465,20 @@ export default function AccountDetail() {
 
   return (
     <Screen>
-      <PageHeader title={account.name} onBack={() => goBack(router)} />
+      <PageHeader
+        title={account.name}
+        onBack={() => goBack(router)}
+        action={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="ארכוב חשבון"
+            hitSlop={12}
+            onPress={onArchive}
+          >
+            <Ionicons name="archive-outline" size={22} color={colors.textFaint} />
+          </Pressable>
+        }
+      />
 
       {/* input אמיתי ב-DOM: יציב לאוטומציה, ולא נמחק אחרי הבחירה */}
       {Platform.OS === 'web' ? (

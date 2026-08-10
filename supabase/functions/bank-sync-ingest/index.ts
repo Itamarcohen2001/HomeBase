@@ -211,6 +211,19 @@ function admin() {
   );
 }
 
+/**
+ * השוואת סוד בזמן קבוע — `!==` על מחרוזות עוצר בתו הראשון שלא תואם, וזמן
+ * התגובה חושף כמה תווים כבר ניחשו נכון (timing attack). לא הסיכון הדחוף
+ * ביותר כאן (הפונקציה נגישה רק ממחשב מקומי מהימן לפי התיעוד), אבל ההשוואה
+ * הזו קלה ולא עולה כלום, אז אין סיבה שלא.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
 type IncomingTx = {
   external_id: string;
   occurred_on: string;
@@ -235,7 +248,7 @@ serve(async (req) => {
 
     const expected = Deno.env.get('BANK_SYNC_INGEST_SECRET');
     if (!expected) throw new Error('BANK_SYNC_INGEST_SECRET לא מוגדר בפרויקט');
-    if (secret !== expected) return json({ error: 'סוד לא תקין' }, 401);
+    if (!timingSafeEqual(secret, expected)) return json({ error: 'סוד לא תקין' }, 401);
     if (!connectionId) return json({ error: 'connection_id חסר' }, 400);
 
     const { data: conn, error: connErr } = await db

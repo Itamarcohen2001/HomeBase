@@ -35,7 +35,7 @@ export default function ConnectBank() {
   const router = useRouter();
   const { colors } = useTheme();
   const { confirm } = useDialog();
-  const { householdId } = useHousehold();
+  const { householdId, bumpVersion } = useHousehold();
   const [connections, setConnections] = useState<BankConnection[]>([]);
   const [pending, setPending] = useState<BankSyncPending[]>([]);
   const [accounts, setAccounts] = useState<nw.TrackedAccount[]>([]);
@@ -168,6 +168,7 @@ export default function ConnectBank() {
     try {
       await db.approveBankPending(row.id, null);
       setPending((prev) => prev.filter((p) => p.id !== row.id));
+      bumpVersion(); // תנועה אמיתית נוצרה (ויתרת החשבון המקושר התעדכנה) — כמו כל נתיב יצירת תנועה אחר
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לאשר את התנועה — ודא/י שלחיבור המקורי יש חשבון מקושר') });
     } finally {

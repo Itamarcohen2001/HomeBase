@@ -69,8 +69,6 @@ export default function NetWorth() {
   const [amount, setAmount] = useState('');
   const [overdrawn, setOverdrawn] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [tracked, setTracked] = useState<nw.TrackedAccount[]>([]);
-  const [txns, setTxns] = useState<nw.TrackedTransaction[]>([]);
   const [latestFetchTime, setLatestFetchTime] = useState<string | null>(null);
 
   const { data: trendData, loading: trendLoading, reload: reloadTrend } = useNetWorthTrend();
@@ -105,17 +103,6 @@ export default function NetWorth() {
         setClasses([]);
       }
 
-      // 🎯 החלטה 18: היתרה נצברת מהעוגן. שולפים את כל חשבונות הבנק,
-      //    ואת התנועות מאז העוגן הישן ביותר.
-      const accts = await nw.listTrackedAccounts(householdId);
-      setTracked(accts);
-      const oldestAnchor = accts.reduce<string | null>((oldest, a) => {
-        if (!a.captured_at) return oldest;
-        const from = nw.anchorDate(a.captured_at);
-        if (!from) return oldest;
-        return oldest === null || from < oldest ? from : oldest;
-      }, null);
-      setTxns(oldestAnchor ? await nw.listTransactionsAfter(householdId, oldestAnchor) : []);
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון את החשבונות') });
     } finally {

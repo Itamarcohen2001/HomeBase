@@ -26,7 +26,7 @@ export default function Home() {
   const month = monthStart();
   const insets = useSafeAreaInsets();
   const { household } = useHousehold();
-  const { colors, isDark, toggleTheme } = useTheme();
+  const { colors } = useTheme();
   const { summary, transactions, loading, error, reload } = useMonthData(month);
 
   const recent = useMemo(() => transactions.slice(0, 5), [transactions]);

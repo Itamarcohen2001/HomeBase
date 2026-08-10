@@ -90,6 +90,19 @@ supabase secrets set BANK_SYNC_INGEST_SECRET=<ערך אקראי ארוך משל�
 הגירוד בפועל (חיבור לאתר הבנק) רץ מחוץ ל-Supabase, בסוכן מקומי נפרד —
 ראו `bank-sync/README.md` להתקנה והגדרה מלאה.
 
+### ייבוא PDF (אופציונלי)
+
+מסך הייבוא יודע לקרוא PDF של דוח בנק/אשראי עם AI (Gemini). המפתח **לא**
+נכנס ל-`.env` — אם הוא היה שם הוא היה נארז לתוך הבאנדל הציבורי של האתר,
+וכל מבקר יכול היה לשלוף אותו ולהשתמש בו על חשבונכם. הוא סוד בצד השרת בלבד:
+
+```bash
+supabase functions deploy pdf-import
+supabase secrets set GEMINI_API_KEY=<המפתח מ-https://aistudio.google.com>
+```
+
+אם הפונקציה לא פרוסה — ייבוא PDF יחזיר שגיאה; ייבוא Excel/CSV הרגיל ממשיך לעבוד כרגיל.
+
 ## מבנה הפרויקט
 
 ```

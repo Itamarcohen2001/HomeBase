@@ -10,7 +10,13 @@ begin
     from pg_catalog.pg_extension
     where extname = 'pg_cron'
   ) then
-    perform cron.unschedule('end-of-month-balance');
+    -- 🔴 אותו כשל: unschedule זורק אם הג'וב לא קיים (למשל אם 0014 לא הצליח
+    --    ליצור אותו על DB טרי). עוטפים כדי שההרצה לא תיפול על זה.
+    begin
+      perform cron.unschedule('end-of-month-balance');
+    exception when others then
+      null;
+    end;
   end if;
 end $$;
 

@@ -61,8 +61,14 @@ $$;
 do $$
 begin
   create extension if not exists pg_cron;
-  perform cron.unschedule('end-of-month-balance');
-  
+  -- 🔴 cron.unschedule זורק שגיאה אם הג'וב עוד לא קיים (DB טרי) — לא no-op
+  --    כמו drop-if-exists. עוטפים כדי שההרצה הראשונה לא תיפול.
+  begin
+    perform cron.unschedule('end-of-month-balance');
+  exception when others then
+    null;
+  end;
+
   -- אנחנו נריץ כל ערב ב-20:00 שעון ישראל (17:00 או 18:00 UTC)
   -- בתוך הפונקציה, נוודא שזה היום האחרון בחודש:
   -- אבל כדי שזה יהיה פשוט יותר, נוסיף בדיקה קטנה בג'וב עצמו:

@@ -22,6 +22,7 @@ const ROWS: Row[] = [
   { icon: 'pricetags', color: '#4F7FE4', title: 'קטגוריות', subtitle: 'הוספה, עריכה ומחיקה', href: '/categories' },
   { icon: 'repeat', color: '#E4894F', title: 'הוצאות קבועות', subtitle: 'שכירות, ארנונה, מנויים', href: '/recurring' },
   { icon: 'cloud-upload', color: '#4F8FE4', title: 'ייבוא מהבנק', subtitle: 'קובץ דוח אשראי מהבנק', href: '/import' },
+  { icon: 'link', color: '#3E9DBF', title: 'חיבור בנקים', subtitle: 'סנכרון אוטומטי + תנועות לאישור', href: '/connect-bank' },
   { icon: 'people', color: '#9B6BDF', title: 'בני הבית', subtitle: 'חברים והזמנות למייל', href: '/members' },
   { icon: 'settings', color: '#5BC0BE', title: 'הגדרות', subtitle: 'שם משק הבית וחשבון', href: '/settings' },
 ];

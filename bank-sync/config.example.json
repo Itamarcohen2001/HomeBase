@@ -1,0 +1,5 @@
+{
+  "supabaseUrl": "https://xxxx.supabase.co",
+  "supabaseAnonKey": "אותו ערך של EXPO_PUBLIC_SUPABASE_ANON_KEY מ-.env של האפליקציה",
+  "ingestSecret": "אותו ערך שהוגדר עם: supabase secrets set BANK_SYNC_INGEST_SECRET=..."
+}

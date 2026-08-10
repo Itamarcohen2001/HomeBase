@@ -132,3 +132,39 @@ export type MonthSummary = {
   savingRate: number;
   byCategory: CategoryProgress[];
 };
+
+// ── חיבור בנקים (סנכרון אוטומטי) ────────────────────────────────────────────
+/**
+ * מטא-דאטה על חיבור בנק. אינה מכילה סיסמאות — אלה נשארות מוצפנות (DPAPI)
+ * במחשב שמריץ את הגירוד המקומי (bank-sync/), ואף פעם לא מגיעות ל-Supabase.
+ */
+export type BankConnection = {
+  id: string;
+  household_id: string;
+  institution: string;
+  nickname: string;
+  account_id: string | null;
+  status: 'pending_setup' | 'ok' | 'error';
+  last_synced_at: string | null;
+  last_error: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+/** תנועה שנגרדה וממתינה לאישור — ראו approve_bank_pending/reject_bank_pending. */
+export type BankSyncPending = {
+  id: string;
+  household_id: string;
+  connection_id: string;
+  external_id: string;
+  occurred_on: string;
+  amount_agorot: number;
+  kind: Kind;
+  description: string | null;
+  suggested_category_id: string | null;
+  status: 'pending' | 'approved' | 'rejected';
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+  categories?: Pick<Category, 'id' | 'name' | 'icon' | 'color'> | null;
+};

@@ -43,3 +43,9 @@ yarn-error.*
 
 # commit-message scratch (PowerShell has no heredoc)
 .msg
+
+# bank-sync — סוכן מקומי (לא לייצוא). סודות/לוגים לא נכנסים ל-git בשום מצב.
+bank-sync/secrets/
+bank-sync/logs/
+bank-sync/config.json
+bank-sync/node_modules/

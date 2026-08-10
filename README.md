@@ -15,6 +15,9 @@
 - **הכנסות** — יתרה חודשית ואחוז חיסכון
 - **הוצאות קבועות** — נרשמות אוטומטית כל חודש ביום שנבחר, עם אפשרות לכבות
 - **היסטוריה** — כל התנועות לפי חודש, עם עריכה ומחיקה
+- **חיבור בנקים** — סנכרון אוטומטי מהבנק דרך סוכן מקומי (`bank-sync/`,
+  ראו שם README נפרד), עם תור אישור למסך "חיבור בנקים" לפני שתנועה
+  שנגרדה נכנסת להיסטוריה. הסיסמאות לא עוזבות את המחשב המקומי
 
 ## הרצה
 
@@ -75,6 +78,18 @@ supabase secrets set RESEND_API_KEY=...
 
 אם הפונקציה לא פרוסה — האפליקציה תציע לשתף את ההזמנה ידנית (WhatsApp וכו').
 
+### חיבור בנקים (אופציונלי)
+
+כדי שמסך "חיבור בנקים" יעבוד צריך לפרוס עוד Edge Function ולהגדיר סוד:
+
+```bash
+supabase functions deploy bank-sync-ingest
+supabase secrets set BANK_SYNC_INGEST_SECRET=<ערך אקראי ארוך משלכם>
+```
+
+הגירוד בפועל (חיבור לאתר הבנק) רץ מחוץ ל-Supabase, בסוכן מקומי נפרד —
+ראו `bank-sync/README.md` להתקנה והגדרה מלאה.
+
 ## מבנה הפרויקט
 
 ```
@@ -87,6 +102,7 @@ app/                    מסכים (expo-router)
   members.tsx           בני הבית והזמנות
   settings.tsx          הגדרות
   setup.tsx             יצירה/הצטרפות למשק בית
+  connect-bank.tsx       חיבורי בנק + תור אישור לתנועות שנגרדו
 src/
   theme.ts              ערכת עיצוב (צבעים, מרווחים, צללים, RTL)
   ui/                   רכיבים משותפים
@@ -96,7 +112,9 @@ src/
 supabase/
   setup.sql             כל ה-SQL בקובץ אחד להדבקה בדשבורד
   migrations/           SQL כולל RLS ו-seed
-  functions/send-invite Edge Function לשליחת הזמנות
+  functions/send-invite       Edge Function לשליחת הזמנות
+  functions/bank-sync-ingest  Edge Function שקולטת תנועות מהסוכן המקומי
+bank-sync/              סוכן מקומי (Node, לא חלק מהאתר) — ראו README נפרד
 ```
 
 ## הערות טכניות

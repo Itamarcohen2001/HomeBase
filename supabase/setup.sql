@@ -137,7 +137,7 @@ language sql
 stable
 security definer
 set search_path = public
-as$
+as $$
   select exists (
     select 1 from public.household_members m
     where m.household_id = hid and m.user_id = auth.uid()
@@ -1373,3 +1373,527 @@ grant execute on function public.set_transaction_account(uuid) to authenticated;
 
 -- 🎯 שאילתת הצבירה רצה על (משק בית, תאריך) — בדיוק האינדקס שכבר קיים
 --    מ-0001 (`transactions_household_date_idx`), ולכן אין צורך בחדש.
+
+-- ══ 0014 — סגירת חודש: עדכון יתרת העו"ש (הוחלף מאוחר יותר ע"י טריגר חי) ══════════════
+
+-- הפונקציה הזו תרוץ פעם בחודש ותעדכן את היתרה של חשבון התנועות.
+
+create or replace function public.apply_end_of_month_balance()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  h_id uuid;
+  t_account_id uuid;
+  current_balance bigint;
+  delta_agorot bigint;
+begin
+  -- עבור כל משק בית
+  for h_id in select id from public.households loop
+    
+    -- מצא את חשבון התנועות של משק הבית
+    select id, balance_agorot into t_account_id, current_balance
+    from public.accounts
+    where household_id = h_id
+      and is_transaction_account = true
+      and is_archived = false
+    limit 1;
+
+    if t_account_id is not null then
+      
+      -- חשב את הדלתא של החודש הנוכחי (הכנסות - הוצאות)
+      select coalesce(sum(
+        case 
+          when t.type = 'income' then t.amount_agorot
+          when t.type = 'expense' then -t.amount_agorot
+          else 0
+        end
+      ), 0) into delta_agorot
+      from public.transactions t
+      where t.household_id = h_id
+        and date_trunc('month', t.occurred_on::timestamp) = date_trunc('month', now() at time zone 'Israel');
+
+      -- עדכן את יתרת חשבון התנועות אם יש דלתא
+      if delta_agorot <> 0 then
+        update public.accounts
+        set balance_agorot = balance_agorot + delta_agorot,
+            captured_at = now()
+        where id = t_account_id;
+        
+        -- איפוס / תנועה: כרגע הבקשה היא רק לעדכן את היתרה בבנק.
+      end if;
+
+    end if;
+  end loop;
+end;
+$$;
+
+-- יצירת ג'וב קרון שירוץ כל יום ב-20:00 ויבדוק אם זה היום האחרון של החודש
+-- אם כן, יפעיל את הפונקציה. (דורש pg_cron מופעל)
+do $$
+begin
+  create extension if not exists pg_cron;
+  -- 🔴 cron.unschedule זורק שגיאה אם הג'וב עוד לא קיים (DB טרי) — לא no-op
+  --    כמו drop-if-exists. עוטפים כדי שההרצה הראשונה לא תיפול.
+  begin
+    perform cron.unschedule('end-of-month-balance');
+  exception when others then
+    null;
+  end;
+
+  -- אנחנו נריץ כל ערב ב-20:00 שעון ישראל (17:00 או 18:00 UTC)
+  -- בתוך הפונקציה, נוודא שזה היום האחרון בחודש:
+  -- אבל כדי שזה יהיה פשוט יותר, נוסיף בדיקה קטנה בג'וב עצמו:
+  perform cron.schedule('end-of-month-balance', '0 17 * * *', 
+    $q$ 
+      do $inner$
+      begin
+        -- אם מחר זה ה-1 לחודש, משמע היום זה היום האחרון לחודש
+        if extract(day from (now() at time zone 'Israel' + interval '1 day')) = 1 then
+          perform public.apply_end_of_month_balance();
+        end if;
+      end;
+      $inner$;
+    $q$
+  );
+end $$;
+
+-- ══ 0015 — account_id בתנועות, מחיקת "חשבון תנועות" גלובלי ══════════════
+-- מחיקת "חשבון תנועות" גלובלי ושיוך ישיר של תנועות והוצאות קבועות לחשבונות
+
+-- 1. Add account_id to transactions and recurring_rules
+alter table public.transactions
+  add column if not exists account_id uuid references public.accounts(id) on delete restrict;
+
+alter table public.recurring_rules
+  add column if not exists account_id uuid references public.accounts(id) on delete restrict;
+
+-- 2. Backfill existing transactions and recurring rules with the household's transaction account
+update public.transactions t
+set account_id = a.id
+from public.accounts a
+where a.household_id = t.household_id
+  and a.is_transaction_account = true
+  and t.account_id is null;
+
+update public.recurring_rules r
+set account_id = a.id
+from public.accounts a
+where a.household_id = r.household_id
+  and a.is_transaction_account = true
+  and r.account_id is null;
+
+-- 3. Drop unique index and column
+drop index if exists accounts_transaction_account_key;
+alter table public.accounts
+  drop column if exists is_transaction_account;
+
+-- 4. Drop set_transaction_account function
+drop function if exists public.set_transaction_account(uuid);
+
+-- 5. Update end of month function
+create or replace function public.apply_end_of_month_balance()
+returns void
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  h_id uuid;
+  acc_record record;
+  delta_agorot bigint;
+begin
+  -- עבור כל משק בית
+  for h_id in select id from public.households loop
+    
+    -- עבור כל חשבון במשק הבית שאינו מאורכב
+    for acc_record in 
+      select id, balance_agorot 
+      from public.accounts 
+      where household_id = h_id 
+        and is_archived = false 
+    loop
+      -- חשב את הדלתא של החשבון לחודש הנוכחי
+      -- תוקן t.type ל-t.kind כפי שמוגדר בסכימה 0001
+      select coalesce(sum(
+        case 
+          when t.kind = 'income' then t.amount_agorot
+          when t.kind = 'expense' then -t.amount_agorot
+          else 0
+        end
+      ), 0) into delta_agorot
+      from public.transactions t
+      where t.account_id = acc_record.id
+        and date_trunc('month', t.occurred_on::timestamp) = date_trunc('month', now() at time zone 'Israel');
+
+      -- עדכן את היתרה של החשבון אם יש דלתא
+      if delta_agorot <> 0 then
+        update public.accounts
+        set balance_agorot = balance_agorot + delta_agorot,
+            captured_at = now()
+        where id = acc_record.id;
+      end if;
+    end loop;
+  end loop;
+end;
+$$;
+
+-- ══ 20260805000000 — net_worth_by_account: fetched_at לעדכוני שוק ══════════════
+-- Add fetched_at to the net_worth_by_account view to reflect stock market updates
+
+create or replace view public.net_worth_by_account
+with (security_invoker = on) as
+with latest_holdings as (
+  select distinct on (h.account_id, h.security_id)
+    h.household_id, h.account_id, h.security_id, h.quantity,
+    h.stated_value_agorot, h.as_of
+  from public.holdings h
+  order by h.account_id, h.security_id, h.as_of desc
+),
+latest_prices as (
+  select distinct on (p.security_id)
+    p.security_id, p.ils_price_agorot, p.price_date, p.fetched_at
+  from public.security_prices p
+  order by p.security_id, p.price_date desc
+),
+valued as (
+  select
+    lh.household_id,
+    lh.account_id,
+    case
+      when lp.ils_price_agorot is not null
+        then round(lh.quantity * lp.ils_price_agorot)::bigint
+      else lh.stated_value_agorot
+    end as value_agorot,
+    (lp.ils_price_agorot is null and lh.stated_value_agorot is null) as is_unpriced,
+    (lp.ils_price_agorot is null and lh.stated_value_agorot is not null) as is_stale_from_report,
+    lp.fetched_at
+  from latest_holdings lh
+  left join latest_prices lp on lp.security_id = lh.security_id
+)
+select
+  a.id as account_id,
+  a.household_id,
+  a.name,
+  a.kind,
+  a.balance_agorot,
+  greatest(a.captured_at, max(v.fetched_at)) as captured_at,
+  coalesce(sum(v.value_agorot), 0)::bigint as holdings_agorot,
+  (a.balance_agorot + coalesce(sum(v.value_agorot), 0))::bigint as total_agorot,
+  coalesce(count(*) filter (where v.is_unpriced), 0)::int as unpriced_holdings,
+  coalesce(count(*) filter (where v.is_stale_from_report), 0)::int as report_valued_holdings
+from public.accounts a
+left join valued v on v.account_id = a.id
+where a.is_archived = false
+group by a.id, a.household_id, a.name, a.kind, a.balance_agorot, a.captured_at;
+
+-- ══ 20260807000000 — יתרות חיות: טריגר במקום עדכון סוף-חודש ══════════════
+-- HomeBase :: 0016 Update Balances in Real Time
+-- ============================================================================
+
+-- 1. Remove the old end-of-month job and function
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_extension
+    where extname = 'pg_cron'
+  ) then
+    -- 🔴 אותו כשל: unschedule זורק אם הג'וב לא קיים. על DB טרי שהריצה
+    --    הקודמת (0014_end_of_month) כבר נתקלה באותה בעיה ולא הצליחה
+    --    ליצור את הג'וב, הקריאה הזו הייתה נופלת שוב בלי ה-guard.
+    begin
+      perform cron.unschedule('end-of-month-balance');
+    exception when others then
+      null;
+    end;
+  end if;
+end $$;
+
+drop function if exists public.apply_end_of_month_balance();
+
+-- 2. Backfill existing balances: Add the transactions that occurred AFTER captured_at
+--    Because the end of month script used to only apply transactions of the current month.
+update public.accounts a
+set balance_agorot = a.balance_agorot + coalesce((
+  select sum(
+    case 
+      when t.kind = 'income' then t.amount_agorot
+      when t.kind = 'expense' then -t.amount_agorot
+      else 0
+    end
+  )
+  from public.transactions t
+  where t.account_id = a.id
+    and t.occurred_on > (a.captured_at at time zone 'Israel')::date
+), 0);
+
+-- 3. Create the trigger function
+create or replace function public.on_transaction_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+  if tg_op = 'INSERT' then
+    if new.account_id is not null then
+      update public.accounts
+      set balance_agorot = balance_agorot + (case when new.kind = 'income' then new.amount_agorot else -new.amount_agorot end)
+      where id = new.account_id;
+    end if;
+    return new;
+    
+  elsif tg_op = 'DELETE' then
+    if old.account_id is not null then
+      update public.accounts
+      set balance_agorot = balance_agorot - (case when old.kind = 'income' then old.amount_agorot else -old.amount_agorot end)
+      where id = old.account_id;
+    end if;
+    return old;
+    
+  elsif tg_op = 'UPDATE' then
+    -- Revert old
+    if old.account_id is not null then
+      update public.accounts
+      set balance_agorot = balance_agorot - (case when old.kind = 'income' then old.amount_agorot else -old.amount_agorot end)
+      where id = old.account_id;
+    end if;
+    
+    -- Apply new
+    if new.account_id is not null then
+      update public.accounts
+      set balance_agorot = balance_agorot + (case when new.kind = 'income' then new.amount_agorot else -new.amount_agorot end)
+      where id = new.account_id;
+    end if;
+    return new;
+  end if;
+  
+  return null;
+end;
+$$;
+
+-- 4. Attach trigger
+drop trigger if exists trg_on_transaction_change on public.transactions;
+create trigger trg_on_transaction_change
+  after insert or update or delete on public.transactions
+  for each row execute function public.on_transaction_change();
+
+-- ══ 0016 — חיבור בנקים אוטומטי (סנכרון + תור אישור) ══════════════
+--
+-- 🔴 נכתב במקור לפני 0015 (account_id בתנועות) ו-live_balances (יתרה חיה
+--    לפי טריגר) — לכן bank_connections.account_id, שהיה בהתחלה רק "לצורך
+--    מסך שווי נטו", הפך לחיוני: בלעדיו approve_bank_pending לא ידע לאיזה
+--    חשבון לזקוף את התנועה, והיתרה החיה של אותו חשבון לא הייתה מתעדכנת.
+--
+-- 🔴 **האילוץ שקובע את הצורה הזו.** "חיבור בנק" בישראל פירושו גירוד מסך
+--    (Puppeteer מול אתר הבנק בפועל) — זה חייב Node.js עם דפדפן אמיתי, ו-
+--    Supabase Edge Functions (Deno) לא יכולות להריץ את זה. לכן הגירוד עצמו
+--    קורה בתהליך נפרד שרץ מחוץ ל-Supabase (מחשב הבית, ראו bank-sync/),
+--    ו-Supabase רק **מקבל** תנועות מוכנות דרך Edge Function ומנהל מטא-דאטה.
+--    סיסמאות הבנק עצמן לא נכתבות לכאן בשום עמודה — הן לא עוזבות את המחשב
+--    המקומי (מוצפנות שם, DPAPI). הטבלאות פה יודעות רק "יש חיבור בשם X,
+--    מתי הוא סונכרן לאחרונה, ומה הוא הביא" — לא איך הוא מתחבר.
+--
+-- 🎯 **תנועות שנגרדות לא נכנסות ישר לתקציב.** הן נוחתות ב-bank_sync_pending
+--    וממתינות לאישור ידני במסך (כמו הצ'קליסט של ייבוא קובץ ידני) — כי
+--    צינור גירוד+דדופ חדש עלול לטעות, ועדיף שהטעות תיתפס לפני שהיא נכנסת
+--    להיסטוריה המשותפת, לא אחרי.
+
+-- ── 1. חיבורי בנק ────────────────────────────────────────────────────────────
+create table if not exists public.bank_connections (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households (id) on delete cascade,
+  -- companyId כפי שה-scraper המקומי מצהיר עליו, למשל 'hapoalim' / 'otsarHahayal'
+  institution text not null,
+  nickname text not null default '',
+  -- חשבון קיים (למסך שווי נטו) שהחיבור הזה משויך אליו — לא חובה
+  account_id uuid references public.accounts (id) on delete set null,
+  status text not null default 'pending_setup'
+    check (status in ('pending_setup', 'ok', 'error')),
+  last_synced_at timestamptz,
+  last_error text,
+  created_by uuid references auth.users (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists bank_connections_household_idx
+  on public.bank_connections (household_id, created_at desc);
+
+comment on table public.bank_connections is
+  'מטא-דאטה על חיבור בנק. אינה מכילה סיסמאות — אלה נשארות מוצפנות במחשב המקומי שמריץ את הגירוד.';
+comment on column public.bank_connections.status is
+  'pending_setup = נוצר באתר אך טרם רץ setup מקומי; ok/error מתעדכנים ע"י bank-sync-ingest אחרי כל ריצה.';
+
+alter table public.bank_connections enable row level security;
+
+drop policy if exists bank_connections_select on public.bank_connections;
+create policy bank_connections_select on public.bank_connections for select to authenticated
+using (public.is_household_member(household_id));
+
+drop policy if exists bank_connections_insert on public.bank_connections;
+create policy bank_connections_insert on public.bank_connections for insert to authenticated
+with check (public.is_household_member(household_id));
+
+drop policy if exists bank_connections_update on public.bank_connections;
+create policy bank_connections_update on public.bank_connections for update to authenticated
+using (public.is_household_member(household_id))
+with check (public.is_household_member(household_id));
+
+drop policy if exists bank_connections_delete on public.bank_connections;
+create policy bank_connections_delete on public.bank_connections for delete to authenticated
+using (public.is_household_member(household_id));
+
+-- ── 2. לוג ריצות סנכרון ──────────────────────────────────────────────────────
+-- 🎯 select בלבד למשתמשים — insert/update מגיעים אך ורק מ-bank-sync-ingest
+--    עם service role (בדיוק כמו securities/fx_rates ב-0010), כדי שאף לקוח
+--    לא יוכל "לזייף" ריצת סנכרון מוצלחת.
+create table if not exists public.bank_sync_runs (
+  id uuid primary key default gen_random_uuid(),
+  connection_id uuid not null references public.bank_connections (id) on delete cascade,
+  household_id uuid not null references public.households (id) on delete cascade,
+  started_at timestamptz not null default now(),
+  finished_at timestamptz,
+  status text not null default 'ok' check (status in ('ok', 'error')),
+  found_count integer not null default 0,
+  inserted_count integer not null default 0,
+  error_message text
+);
+
+create index if not exists bank_sync_runs_connection_idx
+  on public.bank_sync_runs (connection_id, started_at desc);
+
+alter table public.bank_sync_runs enable row level security;
+
+drop policy if exists bank_sync_runs_select on public.bank_sync_runs;
+create policy bank_sync_runs_select on public.bank_sync_runs for select to authenticated
+using (public.is_household_member(household_id));
+
+-- ── 3. תור אישור ─────────────────────────────────────────────────────────────
+-- 🎯 גם כאן select בלבד למשתמשים: הכנסה היא service role בלבד (ingest),
+--    ועדכון סטטוס עובר תמיד דרך approve_bank_pending/reject_bank_pending
+--    (security definer, ראו למטה) ולא דרך update ישיר על הטבלה — כדי
+--    שהאישור תמיד ייצור את התנועה התואמת ולא ישאיר pending "מאושר" בלי תנועה.
+create table if not exists public.bank_sync_pending (
+  id uuid primary key default gen_random_uuid(),
+  household_id uuid not null references public.households (id) on delete cascade,
+  connection_id uuid not null references public.bank_connections (id) on delete cascade,
+  -- מזהה/hash שה-scraper מספק לתנועה הבודדת; מפתח הדדופ מול ריצות חופפות
+  external_id text not null,
+  occurred_on date not null,
+  amount_agorot bigint not null check (amount_agorot > 0),
+  kind text not null default 'expense' check (kind in ('expense', 'income')),
+  description text,
+  suggested_category_id uuid references public.categories (id) on delete set null,
+  status text not null default 'pending' check (status in ('pending', 'approved', 'rejected')),
+  created_at timestamptz not null default now(),
+  resolved_at timestamptz,
+  resolved_by uuid references auth.users (id) on delete set null,
+  unique (connection_id, external_id)
+);
+
+create index if not exists bank_sync_pending_household_status_idx
+  on public.bank_sync_pending (household_id, status, occurred_on desc);
+
+comment on table public.bank_sync_pending is
+  'תנועות שנגרדו וממתינות לאישור המשתמש לפני שהן הופכות לתנועה אמיתית. ראו approve_bank_pending/reject_bank_pending.';
+
+alter table public.bank_sync_pending enable row level security;
+
+drop policy if exists bank_sync_pending_select on public.bank_sync_pending;
+create policy bank_sync_pending_select on public.bank_sync_pending for select to authenticated
+using (public.is_household_member(household_id));
+
+-- ── 4. הקישור מתנועה מאושרת לשורת ה-pending שיצרה אותה ──────────────────────
+alter table public.transactions
+  add column if not exists bank_pending_id uuid references public.bank_sync_pending (id) on delete set null;
+
+-- מונע אישור כפול (שתי לחיצות מקבילות) גם אם הבדיקה בתוך הפונקציה תוחמצת
+create unique index if not exists transactions_bank_pending_idx
+  on public.transactions (bank_pending_id) where bank_pending_id is not null;
+
+comment on column public.transactions.bank_pending_id is
+  'שורת bank_sync_pending שאושרה ויצרה את התנועה הזו. במקביל ל-recurring_rule_id/import_batch_id.';
+
+-- ── 5. אישור/דחייה — security definer, בדיוק כמו apply_recurring/invite_to_household ──
+create or replace function public.approve_bank_pending(p_pending_id uuid, p_category_id uuid default null)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  p public.bank_sync_pending;
+  v_account_id uuid;
+  tx_id uuid;
+begin
+  select * into p from public.bank_sync_pending where id = p_pending_id;
+
+  if p.id is null then
+    raise exception 'תנועת הבנק לא נמצאה';
+  end if;
+
+  if not public.is_household_member(p.household_id) then
+    raise exception 'not a member of this household';
+  end if;
+
+  if p.status <> 'pending' then
+    raise exception 'התנועה כבר טופלה';
+  end if;
+
+  -- 🎯 מ-0015+live_balances: לתנועה חייב חשבון, אחרת אין למי לזקוף אותה
+  --    ואין את מי לעדכן ביתרה החיה. "לא מוגדר" מוצהר, לא מנוחש בשקט —
+  --    בדיוק כמו import_batches.account_id null = "לא זוהה".
+  select account_id into v_account_id from public.bank_connections where id = p.connection_id;
+  if v_account_id is null then
+    raise exception 'לחיבור הזה אין חשבון מקושר — יש לקשר חשבון במסך "חיבור בנקים" לפני אישור תנועות';
+  end if;
+
+  insert into public.transactions
+    (household_id, user_id, category_id, kind, amount_agorot, occurred_on, note, bank_pending_id, account_id)
+  values
+    (p.household_id, auth.uid(), coalesce(p_category_id, p.suggested_category_id),
+     p.kind, p.amount_agorot, p.occurred_on, p.description, p.id, v_account_id)
+  returning id into tx_id;
+
+  update public.bank_sync_pending
+     set status = 'approved', resolved_at = now(), resolved_by = auth.uid()
+   where id = p.id;
+
+  return tx_id;
+end;
+$$;
+
+create or replace function public.reject_bank_pending(p_pending_id uuid)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  p public.bank_sync_pending;
+begin
+  select * into p from public.bank_sync_pending where id = p_pending_id;
+
+  if p.id is null then
+    raise exception 'תנועת הבנק לא נמצאה';
+  end if;
+
+  if not public.is_household_member(p.household_id) then
+    raise exception 'not a member of this household';
+  end if;
+
+  if p.status <> 'pending' then
+    raise exception 'התנועה כבר טופלה';
+  end if;
+
+  update public.bank_sync_pending
+     set status = 'rejected', resolved_at = now(), resolved_by = auth.uid()
+   where id = p.id;
+end;
+$$;
+
+grant execute on function public.approve_bank_pending(uuid, uuid) to authenticated;
+grant execute on function public.reject_bank_pending(uuid) to authenticated;

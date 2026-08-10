@@ -4,6 +4,8 @@ import { monthEnd, monthStart } from './format';
 import { recordPendingAllocation } from './networth';
 import type { CreditBatchRef } from './import/aggregate';
 import type {
+  BankConnection,
+  BankSyncPending,
   Budget,
   Category,
   CategoryProgress,
@@ -976,4 +978,67 @@ export async function loadMonth(householdId: string, month: string) {
     listTransactions(householdId, { month }),
   ]);
   return { categories, budgets, transactions, summary: buildSummary(month, categories, budgets, transactions) };
+}
+
+// ── חיבור בנקים (סנכרון אוטומטי) ────────────────────────────────────────────
+// 🔴 אין כאן שום קריאה שמעבירה סיסמת בנק — הטבלאות האלה יודעות רק מטא-דאטה
+//    ותוצאה. הגירוד עצמו קורה במחשב המקומי (bank-sync/), לא כאן.
+
+export async function listBankConnections(householdId: string): Promise<BankConnection[]> {
+  return unwrap(
+    await supabase
+      .from('bank_connections')
+      .select('*')
+      .eq('household_id', householdId)
+      .order('created_at', { ascending: true }),
+  ) as unknown as BankConnection[];
+}
+
+export async function createBankConnection(
+  householdId: string,
+  institution: string,
+  nickname: string,
+  accountId: string,
+): Promise<BankConnection> {
+  return unwrap(
+    await supabase
+      .from('bank_connections')
+      .insert({ household_id: householdId, institution, nickname, account_id: accountId })
+      .select('*')
+      .single(),
+  ) as unknown as BankConnection;
+}
+
+/**
+ * מקשר/מחליף את החשבון שהתנועות מהחיבור הזה נזקפות אליו.
+ * חובה — approve_bank_pending דוחה אישור לחיבור בלי חשבון מקושר.
+ */
+export async function setBankConnectionAccount(id: string, accountId: string): Promise<void> {
+  unwrap(await supabase.from('bank_connections').update({ account_id: accountId }).eq('id', id).select('id'));
+}
+
+export async function deleteBankConnection(id: string): Promise<void> {
+  unwrap(await supabase.from('bank_connections').delete().eq('id', id));
+}
+
+export async function listBankSyncPending(householdId: string): Promise<BankSyncPending[]> {
+  return unwrap(
+    await supabase
+      .from('bank_sync_pending')
+      .select('*, categories:suggested_category_id (id, name, icon, color)')
+      .eq('household_id', householdId)
+      .eq('status', 'pending')
+      .order('occurred_on', { ascending: false }),
+  ) as unknown as BankSyncPending[];
+}
+
+/** מחזיר את מזהה התנועה שנוצרה. p_category_id null = משתמשים בקטגוריה המוצעת. */
+export async function approveBankPending(pendingId: string, categoryId: string | null): Promise<string> {
+  return unwrap(
+    await supabase.rpc('approve_bank_pending', { p_pending_id: pendingId, p_category_id: categoryId }),
+  ) as unknown as string;
+}
+
+export async function rejectBankPending(pendingId: string): Promise<void> {
+  unwrap(await supabase.rpc('reject_bank_pending', { p_pending_id: pendingId }));
 }

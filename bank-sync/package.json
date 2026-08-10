@@ -1,0 +1,17 @@
+{
+  "name": "homebase-bank-sync",
+  "version": "1.0.0",
+  "private": true,
+  "description": "סוכן מקומי (Windows) שמריץ israeli-bank-scrapers ושולח תנועות ל-Edge Function bank-sync-ingest של HomeBase. לא חלק מבאנדל ה-Expo.",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "scripts": {
+    "setup": "node setup.js",
+    "sync": "node sync.js"
+  },
+  "dependencies": {
+    "@primno/dpapi": "^2.0.1",
+    "israeli-bank-scrapers": "^6.9.0"
+  }
+}

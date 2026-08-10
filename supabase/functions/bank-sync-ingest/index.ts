@@ -83,9 +83,6 @@ const POSSIBLE_DUPLICATE_PREFIX = '⚠️ ייתכן שכבר קיימת · ';
 /**
  * התאמת קטגוריה מול import_rules — התבנית הארוכה ביותר שמתאימה מנצחת,
  * ורק בין קטגוריות מאותו kind (הוצאה/הכנסה). ראו import/draft.ts:matchCategory.
- * ⚠️ אין כאן את שכבת המילון המובנה (merchants.ts) — רק כללים שהמשתמש כבר
- * לימד את המערכת דרך ייבוא ידני. תנועה בלי כלל תואם נכנסת בלי קטגוריה
- * מוצעת, והמשתמש בוחר בתור האישור.
  */
 function matchCategoryByRule(
   description: string,
@@ -98,6 +95,104 @@ function matchCategoryByRule(
     .filter((r) => r.pattern && key.includes(r.pattern) && categoryKindById.get(r.category_id) === kind)
     .sort((a, b) => b.pattern.length - a.pattern.length)[0];
   return hit ? hit.category_id : null;
+}
+
+// ── מילון עסקים מובנה ────────────────────────────────────────────────────────
+// פורט של src/lib/import/merchants.ts — אותה תבנית "עדכן גם כאן ידנית" כמו
+// שאר הפונקציה הזו. אם הרשימה שם משתנה, לעדכן גם פה.
+const CATEGORY_BY_MERCHANT: Record<string, string[]> = {
+  'סופר ומכולת': [
+    'שופרסל', 'רמי לוי', 'ויקטורי', 'יינות ביתן', 'מגה בעיר', 'טיב טעם', 'אושר עד', 'יוחננוף',
+    'סופר דוידי', 'סופר פארם', 'am pm', 'ampm', 'טיב טעים', 'קופיקס מרקט', 'מינמרקט', 'מיני מרקט',
+    'שוק בכפר', 'חצי חינם', 'זול ובגדול', 'קשת טעמים', 'מכולת',
+  ],
+  'מסעדות וקפה': [
+    'מקדונלד', 'בורגר', 'קפה', 'ארומה', 'לנדוור', 'קפית', 'רולדין', 'ביסטופ', 'שניצליה', 'תמנון',
+    'כיף של בגט', 'כוורת', 'מעדניית', 'bbw', 'משקט', 'מש קר', 'פשפש', 'wolt', 'וולט', 'תן ביס',
+    'מסעדה', 'פיצה', 'סושי', 'המבורגר', 'בראנץ', 'קייטרינג', 'בייקרי', 'מאפה', 'גלידה', 'שווארמה',
+    'פלאפל', 'רובן',
+  ],
+  'תחבורה ודלק': [
+    'פז', 'סונול', 'דלק', 'דור אלון', 'yellow', 'רב קו', 'רב-קו', 'רכבת ישראל', 'אגד',
+    'מטרופולין', 'גט טקסי', 'gett', 'יאנגו', 'yango', 'שמשונים', 'תדלוק', 'חניון', 'פנגו',
+    'סלופארק', 'עימגה',
+  ],
+  'חשבונות בית': [
+    'חברת חשמל', 'בזק', 'הוט', 'yes', 'פרטנר', 'סלקום', 'פלאפון', 'גולן טלקום', 'רמי לוי תקשורת',
+    'מי אשקלון', 'מי אביבים', 'מקורות', 'תאגיד המים', 'עירייה', 'ארנונה', 'גז', 'סופרגז', 'אמישראגז',
+  ],
+  'בריאות ותרופות': [
+    'סופרפארם', 'ניו פארם', 'בי פארם', 'גוד פארם', 'כללית', 'מכבי', 'מאוחדת', 'לאומית', 'בית מרקחת',
+    'רופא', 'מרפאה', 'שיניים',
+  ],
+  'ביגוד והנעלה': [
+    'קסטרו', 'פוקס', 'zara', 'h&m', 'רנואר', 'גולף', 'אמריקן איגל', 'דלתא',
+    'נעלי', 'טרמינל איקס', 'shein',
+  ],
+  'פנאי ובילויים': [
+    'הטבות פיס', 'פיס פלוס', 'מועדון שלך', 'סינמה סיטי', 'יס פלאנט', 'לב סינמה', 'הבימה', 'סטימצקי',
+    'צומת ספרים', 'ספורט', 'חדר כושר', 'הולמס פלייס', 'איקס פיט',
+  ],
+  'מנויים ודיגיטל': [
+    'netflix', 'נטפליקס', 'spotify', 'ספוטיפיי', 'google', 'apple.com', 'itunes', 'microsoft',
+    'openai', 'chatgpt', 'youtube', 'disney', 'amazon', 'צימר', 'איקלאוד', 'icloud',
+  ],
+  'ילדים וחינוך': ['גן ילדים', 'צהרון', 'בית ספר', 'חוג', 'מעון', 'ועד הורים', 'טיפת חלב'],
+  'חיות מחמד': ['פטס', 'חיות', 'וטרינר', 'אולסטאר פט', 'זולו'],
+  'מתנות ותרומות': ['מתנות', 'פרחים', 'תרומה', 'עמותת'],
+  'ביטוח': ['הראל', 'מגדל', 'כלל ביטוח', 'הפניקס', 'מנורה מבטחים', 'ביטוח לאומי', 'איילון'],
+  'שונות': ['דמי כרטיס', 'עמלה', 'עמלות', 'ש הפקות', 'פרינטר סנטר'],
+};
+
+/** ⚠️ אסור \b על עברית — ראו merchants.ts:MONEY_APP_PATTERNS להסבר המלא. */
+const MONEY_APP_PATTERNS = [
+  /(^|[\s֐-׿])ביט(?=$|\s)/,
+  /(^|[\s֐-׿])פייבוקס(?=$|\s)/,
+  /\b(bit|paybox)\b/i,
+];
+const GENERIC_TRANSFER_PATTERNS = ['העברה'];
+const MONEY_TRANSFER_CATEGORY = 'העברות כספים';
+const OTHER_INCOME_CATEGORY = 'הכנסה אחרת';
+
+let merchantIndex: [string, string][] | null = null;
+function buildMerchantIndex(): [string, string][] {
+  const pairs: [string, string][] = [];
+  for (const [category, merchants] of Object.entries(CATEGORY_BY_MERCHANT)) {
+    for (const m of merchants) pairs.push([normKey(m), category]);
+  }
+  return pairs.sort((a, b) => b[0].length - a[0].length); // ארוך קודם, ראו merchants.ts
+}
+
+/** שם קטגוריה משוער מהמילון המובנה, או null — ראו merchants.ts:guessCategoryName. */
+function guessCategoryName(description: string, kind: 'expense' | 'income'): string | null {
+  const key = normKey(description);
+  const isMoneyApp = MONEY_APP_PATTERNS.some((re) => re.test(key));
+  if (isMoneyApp) return kind === 'income' ? OTHER_INCOME_CATEGORY : MONEY_TRANSFER_CATEGORY;
+  if (GENERIC_TRANSFER_PATTERNS.some((p) => key.includes(p))) return null;
+  if (!key) return null;
+  merchantIndex ??= buildMerchantIndex();
+  for (const [pattern, category] of merchantIndex) {
+    if (pattern && key.includes(pattern)) return category;
+  }
+  return null;
+}
+
+/**
+ * קטגוריה מוצעת: קודם כלל שהמשתמש לימד (import_rules), אחר כך המילון
+ * המובנה — אותו סדר עדיפות כמו matchCategory בייבוא הידני.
+ */
+function suggestCategory(
+  description: string,
+  kind: 'expense' | 'income',
+  rules: { pattern: string; category_id: string }[],
+  categoryKindById: Map<string, 'expense' | 'income'>,
+  categoryIdByName: Map<string, string>,
+): string | null {
+  const byRule = matchCategoryByRule(description, kind, rules, categoryKindById);
+  if (byRule) return byRule;
+  const guessedName = guessCategoryName(description, kind);
+  if (!guessedName) return null;
+  return categoryIdByName.get(normKey(guessedName)) ?? null;
 }
 
 const CORS = {
@@ -168,20 +263,21 @@ serve(async (req) => {
       );
     }
 
-    // ── קטגוריה מוצעת: import_rules הקיים של אותו משק בית ────────────────────
+    // ── קטגוריה מוצעת: import_rules קודם, מילון מובנה כגיבוי ─────────────────
     const [{ data: categories }, { data: rules }] = await Promise.all([
-      db.from('categories').select('id, kind').eq('household_id', householdId),
+      db.from('categories').select('id, name, kind').eq('household_id', householdId),
       db.from('import_rules').select('pattern, category_id').eq('household_id', householdId),
     ]);
     const categoryKindById = new Map((categories ?? []).map((c) => [c.id as string, c.kind as 'expense' | 'income']));
+    const categoryIdByName = new Map((categories ?? []).map((c) => [normKey(c.name as string), c.id as string]));
 
     const rows = txs
       .filter((t) => t.external_id && t.occurred_on && Number.isFinite(t.amount_agorot) && t.amount_agorot > 0)
       .map((t) => {
         const key = signature(t.occurred_on, t.amount_agorot, t.description ?? '');
         const possibleDuplicate = (existingCounts.get(key) ?? 0) > 0;
-        const suggestedCategoryId = matchCategoryByRule(
-          t.description ?? '', t.kind, rules ?? [], categoryKindById,
+        const suggestedCategoryId = suggestCategory(
+          t.description ?? '', t.kind, rules ?? [], categoryKindById, categoryIdByName,
         );
         return {
           household_id: householdId,

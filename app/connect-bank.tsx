@@ -51,6 +51,8 @@ export default function ConnectBank() {
 
   const [busyId, setBusyId] = useState<string | null>(null);
   const [linkingId, setLinkingId] = useState<string | null>(null);
+  /** connection.id שנפתח לו כרגע בורר-חשבון לעריכה (גם כשכבר יש חשבון מקושר) */
+  const [editingAccountFor, setEditingAccountFor] = useState<string | null>(null);
 
   const STATUS_META: Record<BankConnection['status'], { label: string; color: string; icon: keyof typeof Ionicons.glyphMap }> = {
     pending_setup: { label: 'ממתין להגדרה במחשב', color: colors.warning, icon: 'time-outline' },
@@ -122,6 +124,7 @@ export default function ConnectBank() {
     try {
       await db.setBankConnectionAccount(conn.id, newAccountId);
       await load();
+      setEditingAccountFor(null);
       setMessage({ tone: 'success', text: 'החשבון קושר לחיבור.' });
     } catch (e) {
       setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לקשר את החשבון') });
@@ -378,7 +381,15 @@ export default function ConnectBank() {
               <View style={{ ...rtlRow, gap: spacing.sm, marginTop: spacing.md, flexWrap: 'wrap' }}>
                 <Badge color={meta.color} icon={meta.icon}>{meta.label}</Badge>
                 {linkedName ? (
-                  <Badge color={colors.textMuted} icon="wallet-outline">{linkedName}</Badge>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel={`שינוי חשבון (כרגע ${linkedName})`}
+                    onPress={() => setEditingAccountFor(editingAccountFor === conn.id ? null : conn.id)}
+                    style={{ ...rtlRow, gap: 4 }}
+                  >
+                    <Badge color={colors.textMuted} icon="wallet-outline">{linkedName}</Badge>
+                    <Ionicons name="pencil" size={13} color={colors.textFaint} />
+                  </Pressable>
                 ) : null}
                 {conn.last_synced_at ? (
                   <Muted style={{ fontSize: 12 }}>סונכרן לאחרונה {formatDate(conn.last_synced_at)}</Muted>
@@ -386,33 +397,45 @@ export default function ConnectBank() {
               </View>
 
               {!linkedName ? (
-                <View style={{ marginTop: spacing.md }}>
-                  <InlineMessage tone="error" style={{ marginBottom: spacing.sm }}>
-                    אין חשבון מקושר — תנועות מהחיבור הזה לא יאושרו עד שתקשר/י חשבון.
-                  </InlineMessage>
+                <InlineMessage tone="error" style={{ marginTop: spacing.md, marginBottom: spacing.sm }}>
+                  אין חשבון מקושר — תנועות מהחיבור הזה לא יאושרו עד שתקשר/י חשבון.
+                </InlineMessage>
+              ) : null}
+
+              {!linkedName || editingAccountFor === conn.id ? (
+                <View style={{ marginTop: linkedName ? spacing.md : 0 }}>
+                  {linkedName ? (
+                    <Muted style={{ marginBottom: spacing.sm, fontSize: 12 }}>לקשר לחשבון אחר:</Muted>
+                  ) : null}
                   {accounts.length === 0 ? (
                     <Muted style={{ fontSize: 12 }}>ליצור חשבון קודם במסך "שווי נטו".</Muted>
                   ) : (
                     <View style={{ flexDirection: 'row-reverse', flexWrap: 'wrap', gap: spacing.sm }}>
-                      {accounts.map((a) => (
-                        <Pressable
-                          key={a.id}
-                          accessibilityRole="button"
-                          accessibilityLabel={`קישור ל${a.name}`}
-                          disabled={linkingId === conn.id}
-                          onPress={() => onLinkAccount(conn, a.id)}
-                          style={{
-                            paddingVertical: spacing.sm,
-                            paddingHorizontal: spacing.md,
-                            borderRadius: radius.pill,
-                            borderWidth: 1.5,
-                            borderColor: colors.border,
-                            backgroundColor: colors.surface,
-                          }}
-                        >
-                          <Text style={{ fontSize: 13, fontWeight: '600', color: colors.text }}>{a.name}</Text>
-                        </Pressable>
-                      ))}
+                      {accounts.map((a) => {
+                        const active = a.id === conn.account_id;
+                        return (
+                          <Pressable
+                            key={a.id}
+                            accessibilityRole="button"
+                            accessibilityState={{ selected: active }}
+                            accessibilityLabel={`קישור ל${a.name}`}
+                            disabled={linkingId === conn.id || active}
+                            onPress={() => onLinkAccount(conn, a.id)}
+                            style={{
+                              paddingVertical: spacing.sm,
+                              paddingHorizontal: spacing.md,
+                              borderRadius: radius.pill,
+                              borderWidth: 1.5,
+                              borderColor: active ? colors.primary : colors.border,
+                              backgroundColor: active ? colors.primarySoft : colors.surface,
+                            }}
+                          >
+                            <Text style={{ fontSize: 13, fontWeight: '600', color: active ? colors.primaryDark : colors.text }}>
+                              {a.name}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
                     </View>
                   )}
                 </View>

@@ -1050,7 +1050,7 @@ export async function listBankSyncPending(householdId: string): Promise<BankSync
   return unwrap(
     await supabase
       .from('bank_sync_pending')
-      .select('*, categories:suggested_category_id (id, name, icon, color)')
+      .select('*, categories:suggested_category_id (id, name, icon, color), bank_connections:connection_id (institution, nickname)')
       .eq('household_id', householdId)
       .eq('status', 'pending')
       .order('occurred_on', { ascending: false }),

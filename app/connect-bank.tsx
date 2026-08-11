@@ -515,7 +515,12 @@ export default function ConnectBank() {
               <View style={{ ...rtlRow, justifyContent: 'space-between', gap: spacing.sm }}>
                 <View style={{ flexShrink: 1, minWidth: 0 }}>
                   <Body numberOfLines={2} style={{ fontWeight: '600' }}>{row.description || 'ללא תיאור'}</Body>
-                  <Muted style={{ fontSize: 12 }}>{formatDate(row.occurred_on)}</Muted>
+                  <Muted style={{ fontSize: 12 }}>
+                    {formatDate(row.occurred_on)}
+                    {row.bank_connections
+                      ? ` · ${row.bank_connections.nickname || institutionLabel(row.bank_connections.institution)}`
+                      : ''}
+                  </Muted>
                 </View>
                 <Body style={{ fontWeight: '700', color: row.kind === 'income' ? colors.income : colors.text }}>
                   {formatMoney(row.amount_agorot)}

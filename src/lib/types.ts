@@ -168,4 +168,5 @@ export type BankSyncPending = {
   resolved_at: string | null;
   resolved_by: string | null;
   categories?: Pick<Category, 'id' | 'name' | 'icon' | 'color'> | null;
+  bank_connections?: Pick<BankConnection, 'institution' | 'nickname'> | null;
 };

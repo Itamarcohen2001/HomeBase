@@ -163,6 +163,22 @@ export default function ConnectBank() {
     );
   }
 
+  async function onRequestSync(conn: BankConnection) {
+    setBusyId(conn.id);
+    try {
+      await db.requestBankSync(conn.id);
+      await load();
+      setMessage({
+        tone: 'success',
+        text: 'הבקשה נשלחה — המחשב שלך בודק בקשות כל כמה דקות, ויסנכרן ברגע שהוא רואה אותה. אין צורך להישאר במסך הזה.',
+      });
+    } catch (e) {
+      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לשלוח את הבקשה') });
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   async function onApprove(row: BankSyncPending) {
     setBusyId(row.id);
     try {
@@ -457,7 +473,23 @@ export default function ConnectBank() {
                   onPress={() => onCopySetupCommand(conn)}
                   style={{ marginTop: spacing.md, marginBottom: 0 }}
                 />
-              ) : null}
+              ) : conn.sync_requested_at ? (
+                <View style={{ marginTop: spacing.md }}>
+                  <Badge color={colors.warning} icon="hourglass-outline">
+                    ממתין שהמחשב יבדוק — עד כמה דקות
+                  </Badge>
+                </View>
+              ) : (
+                <Button
+                  title="סנכרון עכשיו"
+                  variant="secondary"
+                  size="sm"
+                  icon="refresh"
+                  loading={busyId === conn.id}
+                  onPress={() => onRequestSync(conn)}
+                  style={{ marginTop: spacing.md, marginBottom: 0 }}
+                />
+              )}
             </Card>
           );
         })

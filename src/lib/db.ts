@@ -1035,6 +1035,17 @@ export async function deleteBankConnection(id: string): Promise<void> {
   unwrap(await supabase.from('bank_connections').delete().eq('id', id));
 }
 
+/**
+ * "סנכרון עכשיו" — לא מריץ שום דבר כאן (האתר לא יכול להריץ גירוד). רק
+ * מסמן בקשה; bank-sync/poll.js המקומי בודק את זה כל כמה דקות ומבצע בפועל.
+ * מתאפס לבד ע"י bank-sync-ingest ברגע שהסנכרון המבוקש אכן קורה.
+ */
+export async function requestBankSync(id: string): Promise<void> {
+  unwrap(
+    await supabase.from('bank_connections').update({ sync_requested_at: new Date().toISOString() }).eq('id', id).select('id'),
+  );
+}
+
 export async function listBankSyncPending(householdId: string): Promise<BankSyncPending[]> {
   return unwrap(
     await supabase

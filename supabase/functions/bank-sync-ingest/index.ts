@@ -326,10 +326,15 @@ serve(async (req) => {
       inserted_count: insertedCount,
     });
 
+    // 🎯 מאפסים גם sync_requested_at: זה בדיוק הרגע שבו בקשת "סנכרון עכשיו"
+    //    (0019_bank_sync_on_demand.sql) התמלאה בפועל — poll.js המקומי לא
+    //    צריך לדעת שהיא הושלמה, זה קורה אוטומטית באותה קריאה שכבר מעדכנת
+    //    last_synced_at.
     await db.from('bank_connections').update({
       status: 'ok',
       last_synced_at: new Date().toISOString(),
       last_error: null,
+      sync_requested_at: null,
     }).eq('id', connectionId);
 
     return json({ ok: true, found: txs.length, inserted: insertedCount });

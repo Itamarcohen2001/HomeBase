@@ -147,6 +147,7 @@ export type BankConnection = {
   status: 'pending_setup' | 'ok' | 'error';
   last_synced_at: string | null;
   last_error: string | null;
+  sync_requested_at: string | null;
   created_by: string | null;
   created_at: string;
 };

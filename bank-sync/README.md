@@ -60,6 +60,30 @@ copy config.example.json config.json
 
 ביטול: `Unregister-ScheduledTask -TaskName "HomeBase Bank Sync" -Confirm:$false`
 
+## "סנכרון עכשיו" מהאתר (אופציונלי)
+
+כפתור **"סנכרון עכשיו"** בכל חיבור במסך "חיבור בנקים" באתר לא מריץ גירוד
+ישירות — האתר לא יכול (Puppeteer חייב לרוץ כאן). הוא רק מסמן בקשה
+ב-Supabase; כדי שהבקשה תתבצע צריך שהמחשב הזה יבדוק אותה מדי כמה דקות:
+
+```bash
+supabase functions deploy bank-sync-poll
+```
+(אין צורך בסוד חדש — משתמשת באותו `BANK_SYNC_INGEST_SECRET`)
+
+```powershell
+.\register-poll-task.ps1
+```
+
+רושם משימה שרצה כל 2 דקות (`-IntervalMinutes 5` לשינוי), בודקת בקשה קלה,
+ורק אם יש כזו — מריצה גירוד אמיתי לחיבור המבוקש. שקטה: לא כותבת ללוג
+כלום כשאין בקשות ממתינות. **דורש PowerShell כמנהל** (כמו `register-task.ps1`
+כשדורסים משימה קיימת — "Access is denied" בהרשאה רגילה זה נורמלי, להריץ
+כ-Administrator).
+
+בלי הצעד הזה, "סנכרון עכשיו" עדיין עובד — פשוט יתבצע בפעם הבאה שהריצה
+היומית (`register-task.ps1`) תרוץ, לא תוך דקות.
+
 ## הבנק מבקש קוד אימות SMS ("TIMEOUT: waiting for redirect")
 
 חלק מהבנקים (נמדד: הפועלים) שולחים קוד אימות כשההתחברות מגיעה ממכשיר
@@ -95,7 +119,8 @@ node setup.js remove <connection_id>
 
 ```bash
 node setup.js list        # אילו connection_id יש להם קרדנצ'לס מקומיים
-npm run sync               # הרצה ידנית מיידית (בלי לחכות למשימה המתוזמנת)
+npm run sync               # הרצה ידנית מיידית לכל החיבורים (בלי לחכות למשימה המתוזמנת)
+node poll.js                # בדיקה ידנית חד-פעמית של בקשות "סנכרון עכשיו"
 ```
 
 ## הערות אבטחה

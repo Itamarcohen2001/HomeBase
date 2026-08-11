@@ -25,6 +25,7 @@ const ROWS: Row[] = [
   { icon: 'link', color: '#3E9DBF', title: 'חיבור בנקים', subtitle: 'סנכרון אוטומטי + תנועות לאישור', href: '/connect-bank' },
   { icon: 'people', color: '#9B6BDF', title: 'בני הבית', subtitle: 'חברים והזמנות למייל', href: '/members' },
   { icon: 'settings', color: '#5BC0BE', title: 'הגדרות', subtitle: 'שם משק הבית וחשבון', href: '/settings' },
+  { icon: 'book-outline', color: '#8A8FA3', title: 'תיעוד ועזרה', subtitle: 'איך משתמשים, כולל חיבור בנקים שלב-אחר-שלב', href: '/docs' },
 ];
 
 export default function More() {

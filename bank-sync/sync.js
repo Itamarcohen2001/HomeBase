@@ -14,6 +14,14 @@ const { startDate } = require('./lib/dates');
 const CONFIG_PATH = path.join(__dirname, 'config.json');
 const LOG_DIR = path.join(__dirname, 'logs');
 
+// 🔴 **נמדד ב-2026-08-11:** ריצה מתוזמנת קרסה עם קוד "process terminated
+//    unexpectedly" (Task Scheduler) באמצע החיבור השני — אוצר החייל נכשל
+//    בשקט תקין (שגיאת רשת, נרשמה ללוג כמו שצריך), אבל ויזה כאל שאחריו לא
+//    השאיר אף שורה, והתהליך כולו מת. כלומר תקיעה/קריסה של דפדפן אחד הפילה
+//    את כל שאר החיבורים איתה — כולל כאלה שהיו עובדים מצוין. הטיימאאוט הזה
+//    קיים כדי שחיבור תקוע ייעצר לבד ונמשיך לשאר, במקום שכל הריצה תיעלם.
+const SCRAPE_TIMEOUT_MS = 90_000;
+
 function loadConfig() {
   if (!fs.existsSync(CONFIG_PATH)) {
     throw new Error('config.json לא נמצא. להעתיק מ-config.example.json ולמלא (URL/מפתח/סוד).');
@@ -42,26 +50,17 @@ function toExternalId(accountNumber, txn) {
   return `${acc}:${txn.date}:${txn.chargedAmount}:${txn.description}`;
 }
 
-async function scrapeOne(connectionId) {
+async function scrapeOne(connectionId, browser) {
   const { institution, credentials } = loadCredentials(connectionId);
 
-  // 🎯 פרופיל דפדפן קבוע (userDataDir) — לא זריקת דפדפן חדש בכל ריצה.
-  //    ראו lib/browser.js: זה מה שנותן סיכוי שבנק שדרש קוד SMS ב-login.js
-  //    (מכשיר "לא מוכר") יזכור את המכשיר גם כאן, ב-headless.
-  const browser = await launchPersistentBrowser(connectionId, /* headless */ true);
-  let result;
-  try {
-    const scraper = createScraper({
-      companyId: institution,
-      startDate: startDate(),
-      combineInstallments: false,
-      browser,
-      skipCloseBrowser: true,
-    });
-    result = await scraper.scrape(credentials);
-  } finally {
-    await browser.close();
-  }
+  const scraper = createScraper({
+    companyId: institution,
+    startDate: startDate(),
+    combineInstallments: false,
+    browser,
+    skipCloseBrowser: true,
+  });
+  const result = await scraper.scrape(credentials);
 
   if (!result.success) {
     const hint = /timeout/i.test(result.errorType || '')
@@ -107,6 +106,43 @@ async function ingest(config, connectionId, transactions) {
   return body;
 }
 
+/**
+ * חיבור אחד, מבודד מהשאר: דפדפן משלו, טיימאאוט משלו. אם זה נתקע — הורגים
+ * את תהליך ה-Chromium ברמת ה-OS (לא רק browser.close(), שיכול להיתקע בעצמו
+ * אם התהליך כבר קפוא), מה שגורם ל-scraper.scrape() התלוי לדחות, וממשיכים
+ * לחיבור הבא. שום דבר כאן לא זורק החוצה — main() תמיד עובר על כל הרשימה.
+ */
+async function runConnection(id, config) {
+  const browser = await launchPersistentBrowser(id, /* headless */ true);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    try {
+      browser.process()?.kill('SIGKILL');
+    } catch {
+      /* כבר מת/נסגר — לא נורא */
+    }
+  }, SCRAPE_TIMEOUT_MS);
+
+  try {
+    const transactions = await scrapeOne(id, browser);
+    const result = await ingest(config, id, transactions);
+    log([`${id}: הצלחה — נמצאו ${result.found}, נוספו ${result.inserted} חדשות לתור האישור.`]);
+  } catch (e) {
+    const prefix = timedOut ? `TIMEOUT אחרי ${SCRAPE_TIMEOUT_MS / 1000} שניות — ` : '';
+    log([`${id}: שגיאה — ${prefix}${e.message}`]);
+  } finally {
+    clearTimeout(timer);
+    if (!timedOut) {
+      try {
+        await browser.close();
+      } catch {
+        /* לא קריטי — הריצה הבאה תפתח דפדפן חדש בכל מקרה */
+      }
+    }
+  }
+}
+
 async function main() {
   const config = loadConfig();
   const ids = listConnectionIds();
@@ -116,13 +152,7 @@ async function main() {
   }
 
   for (const id of ids) {
-    try {
-      const transactions = await scrapeOne(id);
-      const result = await ingest(config, id, transactions);
-      log([`${id}: הצלחה — נמצאו ${result.found}, נוספו ${result.inserted} חדשות לתור האישור.`]);
-    } catch (e) {
-      log([`${id}: שגיאה — ${e.message}`]);
-    }
+    await runConnection(id, config);
   }
 }
 

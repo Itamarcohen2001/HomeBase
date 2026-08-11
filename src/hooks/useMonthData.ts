@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useFocusEffect } from 'expo-router';
 import * as db from '../lib/db';
 import { monthStart } from '../lib/format';
@@ -27,8 +27,17 @@ const EMPTY: State = {
 export function useMonthData(month: string = monthStart()) {
   const { householdId, version } = useHousehold();
   const [state, setState] = useState<State>(EMPTY);
+  /**
+   * 🔴 בלי זה: ניווט מהיר בין חודשים (הבא←הבא←קודם) יכול לגרום לשתי קריאות
+   *    loadMonth להיות "באוויר" בו-זמנית ולחזור בסדר הפוך מסדר השליחה —
+   *    תשובת החודש הישן נוחתת אחרונה ומחליפה בשקט את הנתונים של החודש
+   *    שבאמת מוצג. מזהה ריצה עולה מוודא שרק התוצאה של הקריאה **האחרונה
+   *    שנשלחה** משפיעה על ה-state, גם אם היא לא האחרונה שחוזרת.
+   */
+  const requestIdRef = useRef(0);
 
   const reload = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
     if (!householdId) {
       setState({ ...EMPTY, loading: false });
       return;
@@ -36,8 +45,10 @@ export function useMonthData(month: string = monthStart()) {
     setState((s) => ({ ...s, loading: true, error: null }));
     try {
       const data = await db.loadMonth(householdId, month);
+      if (requestIdRef.current !== requestId) return; // נחלף בבקשה מאוחרת יותר
       setState({ ...data, loading: false, error: null });
     } catch (e) {
+      if (requestIdRef.current !== requestId) return;
       setState((s) => ({
         ...s,
         loading: false,

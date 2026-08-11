@@ -25,6 +25,19 @@ function unwrap<T>(res: { data: T | null; error: { message: string } | null }): 
   return res.data as T;
 }
 
+/**
+ * 🔴 כמו unwrap, אבל גם דורשת שהעדכון/מחיקה **פגעו בפועל בשורה**. עדכון/מחיקה
+ * שנחסמים ע"י RLS לא מחזירים error — הם פשוט לא נוגעים בכלום ומחזירים
+ * מערך ריק, ו-unwrap הרגילה הייתה מדווחת "הצלחה" על פעולה שלא קרתה בפועל
+ * (נמדד: renameHousehold, שהראתה "עודכן" גם כשה-RLS חסם את זה בשקט).
+ * לשימוש בכל update/delete שיש לו .select('id') ומצפה בדיוק לשורה אחת.
+ */
+function unwrapOne<T>(res: { data: T[] | null; error: { message: string } | null }, message: string): T {
+  const rows = unwrap(res);
+  if (!rows || rows.length === 0) throw new Error(message);
+  return rows[0];
+}
+
 // ── משקי בית ────────────────────────────────────────────────────────────────
 
 export async function listMyHouseholds(): Promise<Household[]> {
@@ -42,7 +55,10 @@ export async function createHousehold(name: string): Promise<string> {
 }
 
 export async function renameHousehold(householdId: string, name: string): Promise<void> {
-  unwrap(await supabase.from('households').update({ name }).eq('id', householdId).select('id'));
+  unwrapOne(
+    await supabase.from('households').update({ name }).eq('id', householdId).select('id'),
+    'לא הצלחנו לעדכן — ייתכן שאין לך הרשאת בעלים למשק הבית הזה',
+  );
 }
 
 export async function listMembers(householdId: string): Promise<HouseholdMember[]> {
@@ -74,15 +90,13 @@ async function attachProfiles<T extends { user_id: string | null }>(rows: T[]): 
   return rows.map((r) => ({ ...r, profiles: r.user_id ? byId.get(r.user_id) ?? null : null }));
 }
 
+/**
+ * עוזב את עצמו (userId = המשתמש הנוכחי) או מסיר בן בית אחר (רק אם הקורא
+ * בעלים). RPC ולא delete ישיר — כדי לחסום ולהודיע (לא רק לחסום בשקט)
+ * הסרה של החבר האחרון במשק הבית, ראו 0018_household_and_recurring_safety.sql.
+ */
 export async function leaveHousehold(householdId: string, userId: string): Promise<void> {
-  unwrap(
-    await supabase
-      .from('household_members')
-      .delete()
-      .eq('household_id', householdId)
-      .eq('user_id', userId)
-      .select('id'),
-  );
+  unwrap(await supabase.rpc('leave_household', { p_household_id: householdId, p_user_id: userId }));
 }
 
 // ── הזמנות ──────────────────────────────────────────────────────────────────

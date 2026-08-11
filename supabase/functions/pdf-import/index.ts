@@ -107,10 +107,29 @@ serve(async (req) => {
       throw new Error('ה-AI לא מצא תנועות במסמך');
     }
 
-    const parsedTotal = parsedData.rows.reduce(
+    // 🔴 שורה אחת עם amount לא-מספרי (חסר/null/מחרוזת — סביר בסריקה חלקית)
+    //    הייתה הופכת את ה-reduce כולו ל-NaN, וזה חמור פי כמה ממה שנשמע:
+    //    Math.abs(statedTotal - NaN) > EPSILON הוא תמיד false ב-JS, כלומר
+    //    בדיקת "אי-התאמה לסכום המוצהר" בצד הלקוח (app/import.tsx) — ההגנה
+    //    היחידה נגד פענוח שגוי — לא הייתה יורה בדיוק כשהיא הכי נחוצה. ומעבר
+    //    לזה, amount_agorot NaN היה מגיע ל-insert בודד עם שורות תקינות
+    //    אחרות ומפיל את כל האצווה (transactions.amount_agorot > 0 נכשל),
+    //    כך שהמשתמש מאבד גם את השורות שכן פוענחו נכון. סינון כאן, לפני
+    //    הסכימה, אומר שדוח עם שורה פגומה אחת עדיין מייבא את השאר בהצלחה.
+    const validRows = parsedData.rows.filter(
+      (r: any) => typeof r.amount === 'number' && Number.isFinite(r.amount) && r.amount > 0,
+    );
+    const droppedCount = parsedData.rows.length - validRows.length;
+
+    const parsedTotal = validRows.reduce(
       (sum: number, r: any) => sum + (r.isRefund ? -r.amount : r.amount),
       0,
     );
+
+    const notes = ['הנתונים פוענחו באמצעות AI (Gemini). מומלץ לוודא שהתאריכים והסכומים נקראו נכון.'];
+    if (droppedCount > 0) {
+      notes.push(`${droppedCount} שור${droppedCount === 1 ? 'ה הושמטה' : 'ות הושמטו'} — לא היה להן סכום תקין.`);
+    }
 
     return json({
       source: parsedData.source || 'דוח אשראי',
@@ -120,8 +139,8 @@ serve(async (req) => {
       parsedTotal,
       statementDate: parsedData.statementDate || null,
       chargeDate: null,
-      rows: parsedData.rows,
-      notes: ['הנתונים פוענחו באמצעות AI (Gemini). מומלץ לוודא שהתאריכים והסכומים נקראו נכון.'],
+      rows: validRows,
+      notes,
     });
   } catch (e) {
     return json({ error: 'פענוח ה-PDF נכשל.', detail: String(e?.message ?? e) }, 500);

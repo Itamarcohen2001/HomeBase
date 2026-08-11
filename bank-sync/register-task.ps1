@@ -1,6 +1,9 @@
 # register-task.ps1 — רושם משימה יומית ב-Windows Task Scheduler שמריצה
 # node sync.js בלי חלון גלוי. זה הצעד הידני היחיד בכל הזרימה — אחריו
-# הסנכרון רץ לבד, גם אם המחשב היה כבוי בשעה שנקבעה (StartWhenAvailable).
+# הסנכרון רץ לבד, גם אם המחשב היה כבוי בשעה שנקבעה (StartWhenAvailable),
+# עם דיחוי קטן (RandomDelay) לפני שהיא מתחילה בפועל, ועד 3 ניסיונות חוזרים
+# ברווח 5 דקות אם הריצה נכשלת (RestartCount/RestartInterval) — כדי שריצה
+# בודדת שנתקלת ברשת לא-יציבה מיד אחרי הפעלה לא תפיל את כל היום.
 #
 # הרצה (חד-פעמית, מ-PowerShell רגיל — לא חייב הרשאת מנהל):
 #   cd bank-sync
@@ -34,10 +37,17 @@ if (-not (Test-Path $configPath)) {
 
 $action = New-ScheduledTaskAction -Execute $nodePath -Argument "`"$syncScript`"" -WorkingDirectory $scriptDir
 $trigger = New-ScheduledTaskTrigger -Daily -At $Time
+# 🔴 נמדד ב-2026-08-11: StartWhenAvailable תפס ריצה מיד כשהמחשב עלה אחרי
+#    שהיה כבוי, לפני שהרשת התייצבה באמת — RunOnlyIfNetworkAvailable בודק
+#    רק שיש מתאם רשת מחובר, לא שהאינטרנט בפועל עובד. RandomDelay נותן חלון
+#    קטן שסופג בדיוק את המקרה הזה (גם ריצה רגילה וגם "תפיסה" אחרי הפעלה).
+$trigger.RandomDelay = 'PT3M'
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
   -RunOnlyIfNetworkAvailable `
-  -ExecutionTimeLimit (New-TimeSpan -Hours 1)
+  -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
+  -RestartCount 3 `
+  -RestartInterval (New-TimeSpan -Minutes 5)
 
 # ⚠️ נרשמת עבור המשתמש הנוכחי, רצה רק כשהוא מחובר — בכוונה לא "בין אם
 #    מחובר ובין אם לא", כי זה היה דורש לשמור את סיסמת ה-Windows במשימה

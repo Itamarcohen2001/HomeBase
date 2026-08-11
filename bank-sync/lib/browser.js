@@ -19,11 +19,24 @@ function profileDir(connectionId) {
   return path.join(PROFILES_DIR, connectionId);
 }
 
-/** headless=false לצורך login.js (רואים את מסך הבנק כדי להזין קוד ידנית). */
+/**
+ * headless=false לצורך login.js (רואים את מסך הבנק כדי להזין קוד ידנית).
+ *
+ * 🎯 --disable-gpu/--disable-software-rasterizer: דגלים סטנדרטיים למניעת
+ *    קריסות תהליך-GPU של Chromium בהקשר לא-אינטראקטיבי (משימה מתוזמנת,
+ *    לפעמים לפני שה-session גמר להתייצב אחרי הפעלה) — נמדד ב-2026-08-11
+ *    קריסה של כל תהליך ה-Node/Chrome באמצע ריצה מתוזמנת שקרתה מיד אחרי
+ *    שהמחשב עלה. לא הוכחה חד-משמעית שזה הסיבה, אבל אלה דגלים בטוחים
+ *    וללא תופעת לוואי לגירוד headless.
+ */
 async function launchPersistentBrowser(connectionId, headless) {
   const dir = profileDir(connectionId);
   fs.mkdirSync(dir, { recursive: true });
-  return puppeteer.launch({ headless, userDataDir: dir });
+  return puppeteer.launch({
+    headless,
+    userDataDir: dir,
+    args: ['--disable-gpu', '--disable-software-rasterizer'],
+  });
 }
 
 module.exports = { launchPersistentBrowser, profileDir };

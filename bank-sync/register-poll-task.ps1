@@ -41,17 +41,19 @@ $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
   -RunOnlyIfNetworkAvailable `
-  -DisallowStartIfOnBatteries:$false `
+  -AllowStartIfOnBatteries `
+  -DontStopIfGoingOnBatteries `
   -ExecutionTimeLimit (New-TimeSpan -Minutes 5) `
   -MultipleInstances IgnoreNew
 
 # 🎯 MultipleInstances IgnoreNew: אם בדיקה קודמת עדיין באמצע גירוד אמיתי
 #    (יכול לקחת עד 90 שניות לחיבור), הבדיקה הבאה מדלגת במקום להצטבר.
 #
-# 🔴 נמדד ב-2026-08-12: ברירת המחדל של Windows (DisallowStartIfOnBatteries)
+# 🔴 נמדד ב-2026-08-12: ברירת המחדל של Windows (בלי AllowStartIfOnBatteries)
 #    מונעת מהמשימה לרוץ בכלל כשהמחשב לא מחובר לחשמל — "סנכרון עכשיו" נשאר
 #    תקוע שעות בלי שום שגיאה גלויה. הבדיקה עצמה זניחה בעלות (שיחת רשת אחת),
-#    אז מבטלים את ההגבלה הזו במפורש.
+#    אז מבטלים את ההגבלה הזו במפורש. (שם הפרמטר האמיתי הוא חיובי —
+#    AllowStartIfOnBatteries — לא DisallowStartIfOnBatteries כפי שניסינו קודם.)
 
 Register-ScheduledTask `
   -TaskName $TaskName `

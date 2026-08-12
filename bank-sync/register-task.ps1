@@ -45,9 +45,12 @@ $trigger.RandomDelay = 'PT3M'
 $settings = New-ScheduledTaskSettingsSet `
   -StartWhenAvailable `
   -RunOnlyIfNetworkAvailable `
+  -DisallowStartIfOnBatteries:$false `
   -ExecutionTimeLimit (New-TimeSpan -Hours 1) `
   -RestartCount 3 `
   -RestartInterval (New-TimeSpan -Minutes 5)
+# 🔴 ברירת המחדל של Windows חוסמת את המשימה לגמרי כשהמחשב על סוללה —
+#    ראו register-poll-task.ps1 להסבר המלא. אותה בעיה, אותו תיקון.
 
 # ⚠️ נרשמת עבור המשתמש הנוכחי, רצה רק כשהוא מחובר — בכוונה לא "בין אם
 #    מחובר ובין אם לא", כי זה היה דורש לשמור את סיסמת ה-Windows במשימה

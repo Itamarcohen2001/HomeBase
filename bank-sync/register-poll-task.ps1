@@ -29,12 +29,16 @@ if (-not $nodePath) {
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $pollScript = Join-Path $scriptDir "poll.js"
 $configPath = Join-Path $scriptDir "config.json"
+$vbsPath = Join-Path $scriptDir "run-hidden.vbs"
 
 if (-not (Test-Path $configPath)) {
   Write-Warning "config.json לא נמצא ב-$scriptDir — להעתיק מ-config.example.json ולמלא לפני ההרצה הראשונה."
 }
 
-$action = New-ScheduledTaskAction -Execute $nodePath -Argument "`"$pollScript`"" -WorkingDirectory $scriptDir
+# 🎯 מריצים דרך run-hidden.vbs ולא node.exe ישירות: node הוא תוכנת קונסולה,
+#    אז Task Scheduler מציג לה חלון גלוי גם ברקע — כל 2 דקות. wscript עם
+#    windowStyle=0 מדכא את זה.
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`" `"$nodePath`" `"$pollScript`"" -WorkingDirectory $scriptDir
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date) `
   -RepetitionInterval (New-TimeSpan -Minutes $IntervalMinutes) `
   -RepetitionDuration (New-TimeSpan -Days 3650)

@@ -30,12 +30,16 @@ if (-not $nodePath) {
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $syncScript = Join-Path $scriptDir "sync.js"
 $configPath = Join-Path $scriptDir "config.json"
+$vbsPath = Join-Path $scriptDir "run-hidden.vbs"
 
 if (-not (Test-Path $configPath)) {
   Write-Warning "config.json לא נמצא ב-$scriptDir — להעתיק מ-config.example.json ולמלא לפני ההרצה הראשונה."
 }
 
-$action = New-ScheduledTaskAction -Execute $nodePath -Argument "`"$syncScript`"" -WorkingDirectory $scriptDir
+# 🎯 מריצים דרך run-hidden.vbs ולא node.exe ישירות: node הוא תוכנת קונסולה,
+#    אז Task Scheduler מציג לה חלון גלוי גם ברקע. wscript עם windowStyle=0
+#    מדכא את זה. ראו run-hidden.vbs להסבר המלא.
+$action = New-ScheduledTaskAction -Execute "wscript.exe" -Argument "`"$vbsPath`" `"$nodePath`" `"$syncScript`"" -WorkingDirectory $scriptDir
 $trigger = New-ScheduledTaskTrigger -Daily -At $Time
 # 🔴 נמדד ב-2026-08-11: StartWhenAvailable תפס ריצה מיד כשהמחשב עלה אחרי
 #    שהיה כבוי, לפני שהרשת התייצבה באמת — RunOnlyIfNetworkAvailable בודק

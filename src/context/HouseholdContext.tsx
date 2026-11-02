@@ -1,12 +1,19 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import * as db from '../lib/db';
-import { monthStart } from '../lib/format';
-import type { Household } from '../lib/types';
-import { useAuth } from './AuthContext';
-import { errorText } from '../lib/authErrors';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as db from "../lib/db";
+import { monthStart } from "../lib/format";
+import type { Household } from "../lib/types";
+import { useAuth } from "./AuthContext";
+import { errorText } from "../lib/authErrors";
 
-const STORAGE_KEY = 'homebase.activeHouseholdId';
+const STORAGE_KEY = "homebase.activeHouseholdId";
 
 type HouseholdValue = {
   households: Household[];
@@ -19,6 +26,7 @@ type HouseholdValue = {
   refreshHouseholds: () => Promise<void>;
   selectHousehold: (id: string) => Promise<void>;
   createHousehold: (name: string) => Promise<void>;
+  joinHousehold: (inviteId: string) => Promise<void>;
   bumpVersion: () => void;
 };
 
@@ -32,7 +40,9 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
   // המשתמש שעבורו הנתונים כבר נטענו. כל עוד הוא שונה מהמשתמש הנוכחי אנחנו
   // עדיין "טוענים" — אחרת יש רגע קצר שבו loading=false ו-householdId=null,
   // וה-Gate מנתב את המשתמש ל-/setup ומשם לדף הבית (ומאבד רענון בדף פנימי).
-  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(undefined);
+  const [loadedFor, setLoadedFor] = useState<string | null | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -65,7 +75,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      setError(errorText(e, 'שגיאה בטעינת משק הבית'));
+      setError(errorText(e, "שגיאה בטעינת משק הבית"));
     } finally {
       setLoadedFor(user.id);
       setLoading(false);
@@ -92,6 +102,16 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
     [load],
   );
 
+  const joinHousehold = useCallback(
+    async (inviteId: string) => {
+      const id = await db.acceptInvite(inviteId);
+      await AsyncStorage.setItem(STORAGE_KEY, id);
+      await load();
+      setVersion((v) => v + 1);
+    },
+    [load],
+  );
+
   const value = useMemo<HouseholdValue>(
     () => ({
       households,
@@ -103,6 +123,7 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       refreshHouseholds: load,
       selectHousehold,
       createHousehold,
+      joinHousehold,
       bumpVersion,
     }),
     [
@@ -116,15 +137,21 @@ export function HouseholdProvider({ children }: { children: React.ReactNode }) {
       load,
       selectHousehold,
       createHousehold,
+      joinHousehold,
       bumpVersion,
     ],
   );
 
-  return <HouseholdContext.Provider value={value}>{children}</HouseholdContext.Provider>;
+  return (
+    <HouseholdContext.Provider value={value}>
+      {children}
+    </HouseholdContext.Provider>
+  );
 }
 
 export function useHousehold(): HouseholdValue {
   const ctx = useContext(HouseholdContext);
-  if (!ctx) throw new Error('useHousehold must be used inside HouseholdProvider');
+  if (!ctx)
+    throw new Error("useHousehold must be used inside HouseholdProvider");
   return ctx;
 }

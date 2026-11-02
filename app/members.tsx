@@ -1,14 +1,14 @@
-import { useTheme } from '../src/context/ThemeContext';
-import React, { useCallback, useEffect, useState } from 'react';
-import { Pressable, View } from 'react-native';
-import { useRouter } from 'expo-router';
-import { goBack } from '../src/lib/nav';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../src/context/AuthContext';
-import { useHousehold } from '../src/context/HouseholdContext';
-import * as db from '../src/lib/db';
-import { appOrigin, shareOrCopy } from '../src/lib/share';
-import type { HouseholdMember, Invite } from '../src/lib/types';
+import { useTheme } from "../src/context/ThemeContext";
+import React, { useCallback, useEffect, useState } from "react";
+import { Pressable, View } from "react-native";
+import { useRouter } from "expo-router";
+import { goBack } from "../src/lib/nav";
+import { Ionicons } from "@expo/vector-icons";
+import { useAuth } from "../src/context/AuthContext";
+import { useHousehold } from "../src/context/HouseholdContext";
+import * as db from "../src/lib/db";
+import { appOrigin, shareOrCopy } from "../src/lib/share";
+import type { HouseholdMember, Invite } from "../src/lib/types";
 import {
   Body,
   Button,
@@ -22,9 +22,9 @@ import {
   PageHeader,
   Screen,
   useDialog,
-} from '../src/ui';
-import { rtlRow, spacing } from '../src/theme';
-import { errorText } from '../src/lib/authErrors';
+} from "../src/ui";
+import { rtlRow, spacing } from "../src/theme";
+import { errorText } from "../src/lib/authErrors";
 
 export default function Members() {
   const { colors } = useTheme();
@@ -34,20 +34,29 @@ export default function Members() {
   const { household, householdId, refreshHouseholds } = useHousehold();
   const [members, setMembers] = useState<HouseholdMember[]>([]);
   const [invites, setInvites] = useState<Invite[]>([]);
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ tone: 'error' | 'success' | 'info'; text: string } | null>(null);
+  const [message, setMessage] = useState<{
+    tone: "error" | "success" | "info";
+    text: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     if (!householdId) return;
     setLoading(true);
     try {
-      const [m, i] = await Promise.all([db.listMembers(householdId), db.listInvites(householdId)]);
+      const [m, i] = await Promise.all([
+        db.listMembers(householdId),
+        db.listInvites(householdId),
+      ]);
       setMembers(m);
-      setInvites(i.filter((x) => x.status === 'pending'));
+      setInvites(i.filter((x) => x.status === "pending"));
     } catch (e) {
-      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לטעון את בני הבית') });
+      setMessage({
+        tone: "error",
+        text: errorText(e, "לא הצלחנו לטעון את בני הבית"),
+      });
     } finally {
       setLoading(false);
     }
@@ -58,75 +67,89 @@ export default function Members() {
   }, [load]);
 
   async function onInvite() {
-    if (!householdId || !email.includes('@')) {
-      setMessage({ tone: 'error', text: 'יש להזין כתובת מייל תקינה' });
+    if (!householdId || !email.includes("@")) {
+      setMessage({ tone: "error", text: "יש להזין כתובת מייל תקינה" });
       return;
     }
     setBusy(true);
     setMessage(null);
     try {
       await db.inviteMember(householdId, email.trim());
-      setEmail('');
+      setEmail("");
       await load();
       setMessage({
-        tone: 'success',
-        text: 'ההזמנה מוכנה. שלח/י את הקישור לבן/בת הזוג — ברגע שייכנסו עם אותה כתובת מייל הם יצטרפו אוטומטית.',
+        tone: "success",
+        text: "ההזמנה מוכנה. שלח/י את הקישור — מי שנכנס עם אותה כתובת מייל (חשבון קיים או חדש) יראה את ההזמנה ויוכל להצטרף.",
       });
     } catch (e) {
-      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו ליצור את ההזמנה') });
+      setMessage({
+        tone: "error",
+        text: errorText(e, "לא הצלחנו ליצור את ההזמנה"),
+      });
     } finally {
       setBusy(false);
     }
   }
 
   async function shareInvite(invite: Invite) {
-    const where = household?.name ? ` למשק הבית "${household.name}"` : '';
+    const where = household?.name ? ` למשק הבית "${household.name}"` : "";
     const text =
       `הוזמנת${where} ב-HomeBase — ניהול תקציב משק הבית.\n` +
-      `היכנס/י ל-${appOrigin()} והירשם/י עם הכתובת ${invite.email} כדי להצטרף.`;
-    const result = await shareOrCopy(text, 'הזמנה ל-HomeBase');
-    if (result === 'copied') {
-      setMessage({ tone: 'success', text: 'הקישור הועתק — אפשר להדביק בוואטסאפ' });
-    } else if (result === 'failed') {
-      setMessage({ tone: 'error', text: 'לא הצלחנו לשתף. נסה שוב, או העתק את הכתובת מהדפדפן.' });
+      `היכנס/י ל-${appOrigin()} עם הכתובת ${invite.email} (חשבון קיים או הרשמה חדשה) ולחץ/י "הצטרפות" בדף הבית.`;
+    const result = await shareOrCopy(text, "הזמנה ל-HomeBase");
+    if (result === "copied") {
+      setMessage({
+        tone: "success",
+        text: "הקישור הועתק — אפשר להדביק בוואטסאפ",
+      });
+    } else if (result === "failed") {
+      setMessage({
+        tone: "error",
+        text: "לא הצלחנו לשתף. נסה שוב, או העתק את הכתובת מהדפדפן.",
+      });
     }
   }
 
   async function onRevoke(invite: Invite) {
     const ok = await confirm({
-      title: 'ביטול ההזמנה',
+      title: "ביטול ההזמנה",
       message: `לבטל את ההזמנה ל-${invite.email}? אפשר יהיה ליצור אותה מחדש בכל רגע.`,
-      confirmText: 'ביטול ההזמנה',
-      cancelText: 'השארה',
+      confirmText: "ביטול ההזמנה",
+      cancelText: "השארה",
       destructive: true,
     });
     if (!ok) return;
     try {
       await db.revokeInvite(invite.id);
       await load();
-      setMessage({ tone: 'success', text: 'ההזמנה בוטלה' });
+      setMessage({ tone: "success", text: "ההזמנה בוטלה" });
     } catch (e) {
-      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לבטל את ההזמנה') });
+      setMessage({
+        tone: "error",
+        text: errorText(e, "לא הצלחנו לבטל את ההזמנה"),
+      });
     }
   }
 
   async function onRemoveMember(m: HouseholdMember) {
     const isMe = m.user_id === user?.id;
     const ok = await confirm({
-      title: isMe ? 'יציאה ממשק הבית' : 'הסרת בן בית',
-      message: isMe ? 'לצאת ממשק הבית הזה?' : `להסיר את ${m.profiles?.full_name ?? m.profiles?.email}?`,
-      confirmText: isMe ? 'יציאה' : 'הסרה',
-      cancelText: 'ביטול',
+      title: isMe ? "יציאה ממשק הבית" : "הסרת בן בית",
+      message: isMe
+        ? "לצאת ממשק הבית הזה?"
+        : `להסיר את ${m.profiles?.full_name ?? m.profiles?.email}?`,
+      confirmText: isMe ? "יציאה" : "הסרה",
+      cancelText: "ביטול",
       destructive: true,
     });
     if (!ok) return;
     try {
       await db.leaveHousehold(m.household_id, m.user_id);
       await refreshHouseholds();
-      if (isMe) router.replace('/setup');
+      if (isMe) router.replace("/setup");
       else await load();
     } catch (e) {
-      setMessage({ tone: 'error', text: errorText(e, 'לא הצלחנו לעדכן') });
+      setMessage({ tone: "error", text: errorText(e, "לא הצלחנו לעדכן") });
     }
   }
 
@@ -134,14 +157,20 @@ export default function Members() {
 
   return (
     <Screen>
-      <PageHeader title="בני הבית" onBack={() => goBack(router, '/(tabs)/more')} />
+      <PageHeader
+        title="בני הבית"
+        onBack={() => goBack(router, "/(tabs)/more")}
+      />
 
-      {message ? <InlineMessage tone={message.tone}>{message.text}</InlineMessage> : null}
+      {message ? (
+        <InlineMessage tone={message.tone}>{message.text}</InlineMessage>
+      ) : null}
 
       <Card>
         <H3 style={{ marginBottom: spacing.sm }}>הזמנת בן/בת זוג</H3>
         <Muted style={{ marginBottom: spacing.lg }}>
-          הזן כתובת מייל וקבל קישור לשיתוף. מי שנרשם עם אותה כתובת מצטרף אוטומטית.
+          הזן את כתובת המייל של החשבון שלו/ה (קיים או חדש) וקבל קישור לשיתוף.
+          ההזמנה תופיע אצלו/ה בדף הבית.
         </Muted>
         <Field
           label="כתובת מייל"
@@ -151,7 +180,12 @@ export default function Members() {
           keyboardType="email-address"
           placeholder="partner@example.com"
         />
-        <Button title="יצירת הזמנה" onPress={onInvite} loading={busy} icon="person-add" />
+        <Button
+          title="יצירת הזמנה"
+          onPress={onInvite}
+          loading={busy}
+          icon="person-add"
+        />
       </Card>
 
       {invites.length > 0 ? (
@@ -167,9 +201,26 @@ export default function Members() {
                   borderTopColor: colors.border,
                 }}
               >
-                <View style={{ ...rtlRow, gap: spacing.sm, justifyContent: 'space-between' }}>
-                  <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
-                    <IconBubble icon="mail-unread" color={colors.warning} size={36} />
+                <View
+                  style={{
+                    ...rtlRow,
+                    gap: spacing.sm,
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <View
+                    style={{
+                      ...rtlRow,
+                      gap: spacing.md,
+                      flexShrink: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    <IconBubble
+                      icon="mail-unread"
+                      color={colors.warning}
+                      size={36}
+                    />
                     <Body numberOfLines={1} style={{ flexShrink: 1 }}>
                       {inv.email}
                     </Body>
@@ -179,9 +230,18 @@ export default function Members() {
                     accessibilityLabel={`ביטול ההזמנה ל-${inv.email}`}
                     hitSlop={12}
                     onPress={() => onRevoke(inv)}
-                    style={{ minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' }}
+                    style={{
+                      minWidth: 44,
+                      minHeight: 44,
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
                   >
-                    <Ionicons name="close-circle" size={22} color={colors.danger} />
+                    <Ionicons
+                      name="close-circle"
+                      size={22}
+                      color={colors.danger}
+                    />
                   </Pressable>
                 </View>
                 <Button
@@ -208,29 +268,39 @@ export default function Members() {
             style={{
               ...rtlRow,
               gap: spacing.sm,
-              justifyContent: 'space-between',
+              justifyContent: "space-between",
               paddingVertical: spacing.md,
               borderTopWidth: i === 0 ? 0 : 1,
               borderTopColor: colors.border,
             }}
           >
-            <View style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}>
+            <View
+              style={{ ...rtlRow, gap: spacing.md, flexShrink: 1, minWidth: 0 }}
+            >
               <IconBubble icon="person" color={colors.primary} size={38} />
               <View style={{ flexShrink: 1, minWidth: 0 }}>
-                <Body numberOfLines={1} style={{ fontWeight: '600' }}>
-                  {m.profiles?.full_name ?? m.profiles?.email ?? 'בן בית'}
-                  {m.user_id === user?.id ? ' (אני)' : ''}
+                <Body numberOfLines={1} style={{ fontWeight: "600" }}>
+                  {m.profiles?.full_name ?? m.profiles?.email ?? "בן בית"}
+                  {m.user_id === user?.id ? " (אני)" : ""}
                 </Body>
-                <Muted style={{ fontSize: 12 }}>{m.role === 'owner' ? 'מנהל משק הבית' : 'חבר'}</Muted>
+                <Muted style={{ fontSize: 12 }}>
+                  {m.role === "owner" ? "מנהל משק הבית" : "חבר"}
+                </Muted>
               </View>
             </View>
             <Pressable
               accessibilityRole="button"
-              accessibilityLabel={m.user_id === user?.id ? 'יציאה ממשק הבית' : 'הסרת בן בית'}
+              accessibilityLabel={
+                m.user_id === user?.id ? "יציאה ממשק הבית" : "הסרת בן בית"
+              }
               hitSlop={8}
               onPress={() => onRemoveMember(m)}
             >
-              <Ionicons name="ellipsis-horizontal" size={20} color={colors.textFaint} />
+              <Ionicons
+                name="ellipsis-horizontal"
+                size={20}
+                color={colors.textFaint}
+              />
             </Pressable>
           </View>
         ))}
